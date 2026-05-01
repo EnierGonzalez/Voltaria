@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { ChargerDetail } from "@/components/charger-detail";
-import { ocppLogs, recentSessions, towerChargers } from "@voltaria/shared";
+import { getChargerDetailPageData } from "@/lib/data";
+
+export const dynamic = "force-dynamic";
 
 export default async function ChargerDetailPage({
   params
@@ -8,24 +10,18 @@ export default async function ChargerDetailPage({
   params: Promise<{ chargerId: string }>;
 }) {
   const { chargerId } = await params;
-  const charger = towerChargers.find((item) => item.id === chargerId);
+  const data = await getChargerDetailPageData(chargerId);
 
-  if (!charger) {
+  if (!data.charger) {
     notFound();
   }
 
-  const sessions = recentSessions.filter((session) => session.chargerId === charger.id);
-  const currentSession = charger.currentSessionId
-    ? recentSessions.find((session) => session.id === charger.currentSessionId)
-    : undefined;
-  const logs = ocppLogs.filter((log) => log.chargerId === charger.id);
-
   return (
     <ChargerDetail
-      charger={charger}
-      sessions={sessions}
-      logs={logs}
-      {...(currentSession ? { currentSession } : {})}
+      charger={data.charger}
+      sessions={data.sessions}
+      logs={data.logs}
+      {...(data.currentSession ? { currentSession: data.currentSession } : {})}
     />
   );
 }

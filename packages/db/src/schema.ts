@@ -46,6 +46,12 @@ export const billingStatusEnum = pgEnum("billing_status", ["draft", "pending", "
 
 export const ocppDirectionEnum = pgEnum("ocpp_direction", ["inbound", "outbound"]);
 
+export const systemEventSeverityEnum = pgEnum("system_event_severity", [
+  "info",
+  "warning",
+  "critical"
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
@@ -243,7 +249,7 @@ export const meterValues = pgTable(
     currentA: numeric("current_a", { precision: 8, scale: 2 }),
     voltageV: numeric("voltage_v", { precision: 8, scale: 2 }),
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    ...timestamps
   },
   (table) => ({
     sessionSampledIdx: index("meter_values_session_sampled_idx").on(table.sessionId, table.sampledAt),
@@ -347,7 +353,7 @@ export const ocppMessages = pgTable(
     payload: jsonb("payload").$type<Record<string, unknown> | unknown[] | null>(),
     rawMessage: jsonb("raw_message").$type<unknown>().notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    ...timestamps
   },
   (table) => ({
     chargerReceivedIdx: index("ocpp_messages_charger_received_idx").on(
@@ -356,6 +362,29 @@ export const ocppMessages = pgTable(
     ),
     actionIdx: index("ocpp_messages_action_idx").on(table.action),
     rawSearchIdx: index("ocpp_messages_raw_search_idx").using("gin", table.rawMessage)
+  })
+);
+
+export const systemEvents = pgTable(
+  "system_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id").references(() => properties.id, { onDelete: "set null" }),
+    chargerId: uuid("charger_id").references(() => chargers.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id").references(() => chargingSessions.id, { onDelete: "set null" }),
+    severity: systemEventSeverityEnum("severity").default("info").notNull(),
+    eventType: varchar("event_type", { length: 120 }).notNull(),
+    message: text("message").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    propertyOccurredIdx: index("system_events_property_occurred_idx").on(
+      table.propertyId,
+      table.occurredAt
+    ),
+    eventTypeIdx: index("system_events_event_type_idx").on(table.eventType)
   })
 );
 
@@ -513,6 +542,21 @@ export const ocppMessagesRelations = relations(ocppMessages, ({ one }) => ({
   charger: one(chargers, {
     fields: [ocppMessages.chargerId],
     references: [chargers.id]
+  })
+}));
+
+export const systemEventsRelations = relations(systemEvents, ({ one }) => ({
+  property: one(properties, {
+    fields: [systemEvents.propertyId],
+    references: [properties.id]
+  }),
+  charger: one(chargers, {
+    fields: [systemEvents.chargerId],
+    references: [chargers.id]
+  }),
+  session: one(chargingSessions, {
+    fields: [systemEvents.sessionId],
+    references: [chargingSessions.id]
   })
 }));
 

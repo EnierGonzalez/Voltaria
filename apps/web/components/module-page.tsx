@@ -16,6 +16,13 @@ import {
 import { useState, type ReactNode } from "react";
 import { SectionCard, StatCard, StatusBadge } from "@voltaria/ui";
 import {
+  type AlertSummary,
+  type BillingRecordSummary,
+  type ChargerSummary,
+  type ChargingSessionSummary,
+  type ConsumptionPoint,
+  type ResidentSummary,
+  type TariffSummary,
   billingRecords,
   consumptionSeries,
   formatCurrency,
@@ -44,6 +51,30 @@ type ModuleKey =
   | "alerts"
   | "reports"
   | "settings";
+
+export type ModulePageData = {
+  chargers: ChargerSummary[];
+  sessions: ChargingSessionSummary[];
+  residents: ResidentSummary[];
+  billingRecords: BillingRecordSummary[];
+  alerts: AlertSummary[];
+  tariffs: TariffSummary[];
+  consumptionSeries: ConsumptionPoint[];
+  weeklyConsumptionSeries: ConsumptionPoint[];
+  monthlyConsumptionSeries: ConsumptionPoint[];
+};
+
+const defaultData: ModulePageData = {
+  chargers: towerChargers,
+  sessions: recentSessions,
+  residents,
+  billingRecords,
+  alerts: recentAlerts,
+  tariffs,
+  consumptionSeries,
+  weeklyConsumptionSeries,
+  monthlyConsumptionSeries
+};
 
 const moduleCopy: Record<ModuleKey, { title: string; description: string }> = {
   chargers: {
@@ -80,7 +111,7 @@ const moduleCopy: Record<ModuleKey, { title: string; description: string }> = {
   }
 };
 
-export function ModulePage({ module }: { module: ModuleKey }) {
+export function ModulePage({ module, data = defaultData }: { module: ModuleKey; data?: ModulePageData }) {
   const copy = moduleCopy[module];
 
   return (
@@ -88,7 +119,7 @@ export function ModulePage({ module }: { module: ModuleKey }) {
       <section className="grid gap-4 md:grid-cols-3">
         <StatCard
           title={copy.title}
-          value={primaryValue(module)}
+          value={primaryValue(module, data)}
           delta={copy.description}
           tone={module === "alerts" ? "warning" : "primary"}
           icon={moduleIcon(module)}
@@ -109,25 +140,25 @@ export function ModulePage({ module }: { module: ModuleKey }) {
         />
       </section>
 
-      {renderModule(module)}
+      {renderModule(module, data)}
     </div>
   );
 }
 
-function primaryValue(module: ModuleKey) {
+function primaryValue(module: ModuleKey, data: ModulePageData) {
   switch (module) {
     case "chargers":
-      return towerChargers.length.toString();
+      return data.chargers.length.toString();
     case "sessions":
-      return recentSessions.length.toString();
+      return data.sessions.length.toString();
     case "residents":
-      return residents.length.toString();
+      return data.residents.length.toString();
     case "billing":
-      return formatCurrency(billingRecords.reduce((sum, item) => sum + item.totalAmount, 0));
+      return formatCurrency(data.billingRecords.reduce((sum, item) => sum + item.totalAmount, 0));
     case "consumption":
-      return formatKwh(consumptionSeries.reduce((sum, item) => sum + item.kwh, 0));
+      return formatKwh(data.consumptionSeries.reduce((sum, item) => sum + item.kwh, 0));
     case "alerts":
-      return recentAlerts.length.toString();
+      return data.alerts.length.toString();
     case "reports":
       return "6";
     case "settings":
@@ -157,20 +188,20 @@ function moduleIcon(module: ModuleKey) {
   }
 }
 
-function renderModule(module: ModuleKey) {
+function renderModule(module: ModuleKey, data: ModulePageData) {
   switch (module) {
     case "chargers":
-      return <ChargersModule />;
+      return <ChargersModule chargers={data.chargers} />;
     case "sessions":
-      return <SessionsModule />;
+      return <SessionsModule sessions={data.sessions} />;
     case "residents":
-      return <ResidentsModule />;
+      return <ResidentsModule residents={data.residents} />;
     case "billing":
-      return <BillingModule />;
+      return <BillingModule billingRecords={data.billingRecords} />;
     case "consumption":
-      return <ConsumptionModule />;
+      return <ConsumptionModule data={data} />;
     case "alerts":
-      return <AlertsModule />;
+      return <AlertsModule alerts={data.alerts} />;
     case "reports":
       return <ReportsModule />;
     case "settings":
@@ -178,11 +209,11 @@ function renderModule(module: ModuleKey) {
   }
 }
 
-function ChargersModule() {
+function ChargersModule({ chargers }: { chargers: ChargerSummary[] }) {
   return (
     <SectionCard title="Inventario de cargadores" description="Estado por conector y ubicación">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {towerChargers.map((charger) => (
+        {chargers.map((charger) => (
           <ChargerStatusCard key={charger.id} charger={charger} />
         ))}
       </div>
@@ -190,15 +221,15 @@ function ChargersModule() {
   );
 }
 
-function SessionsModule() {
+function SessionsModule({ sessions }: { sessions: ChargingSessionSummary[] }) {
   return (
     <SectionCard title="Sesiones" description="Sin datos de batería del vehículo">
-      <SessionTable sessions={recentSessions} />
+      <SessionTable sessions={sessions} />
     </SectionCard>
   );
 }
 
-function ResidentsModule() {
+function ResidentsModule({ residents }: { residents: ResidentSummary[] }) {
   return (
     <SectionCard title="Residentes" description="Acceso y asociación a departamentos">
       <DataTable
@@ -218,7 +249,7 @@ function ResidentsModule() {
   );
 }
 
-function BillingModule() {
+function BillingModule({ billingRecords }: { billingRecords: BillingRecordSummary[] }) {
   return (
     <SectionCard title="Facturación" description="Cargos por energía y periodo">
       <DataTable
@@ -239,27 +270,27 @@ function BillingModule() {
   );
 }
 
-function ConsumptionModule() {
+function ConsumptionModule({ data }: { data: ModulePageData }) {
   return (
     <ConsumptionChart
       title="Consumo"
-      description={`Energía entregada por día · tarifa base ${formatCurrency(tariffs[0]?.ratePerKwh ?? 0)} / kWh`}
+      description={`Energía entregada por día · tarifa base ${formatCurrency(data.tariffs[0]?.ratePerKwh ?? 0)} / kWh`}
       dataByRange={{
-        day: consumptionSeries,
-        week: weeklyConsumptionSeries,
-        month: monthlyConsumptionSeries
+        day: data.consumptionSeries,
+        week: data.weeklyConsumptionSeries,
+        month: data.monthlyConsumptionSeries
       }}
     />
   );
 }
 
-function AlertsModule() {
+function AlertsModule({ alerts }: { alerts: AlertSummary[] }) {
   const [attendedAlerts, setAttendedAlerts] = useState<Set<string>>(new Set());
 
   return (
     <SectionCard title="Alertas" description="Eventos con severidad y fuente">
       <div className="space-y-3">
-        {recentAlerts.map((alert) => (
+        {alerts.map((alert) => (
           <AlertItem
             key={alert.id}
             alert={alert}

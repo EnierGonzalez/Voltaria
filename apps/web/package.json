@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@voltaria/db": "workspace:*",
     "@voltaria/shared": "workspace:*",
     "@voltaria/ui": "workspace:*",
     "class-variance-authority": "^0.7.1",

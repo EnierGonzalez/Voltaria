@@ -20,6 +20,12 @@
       "@voltaria/shared/*": [
         "../../packages/shared/src/*"
       ],
+      "@voltaria/db": [
+        "../../packages/db/src/index.ts"
+      ],
+      "@voltaria/db/*": [
+        "../../packages/db/src/*"
+      ],
       "@voltaria/ui": [
         "../../packages/ui/src/index.ts"
       ],

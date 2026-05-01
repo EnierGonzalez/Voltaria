@@ -16,6 +16,8 @@
     "lint": "pnpm -r lint",
     "db:generate": "pnpm --filter @voltaria/db db:generate",
     "db:migrate": "pnpm --filter @voltaria/db db:migrate",
+    "db:push": "pnpm --filter @voltaria/db db:push",
+    "db:seed": "pnpm --filter @voltaria/db db:seed",
     "db:studio": "pnpm --filter @voltaria/db db:studio"
   },
   "devDependencies": {

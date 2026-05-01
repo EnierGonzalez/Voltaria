@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { SessionDetail } from "@/components/session-detail";
-import { meterValueSeries, ocppLogs, recentSessions, sessionEvents } from "@voltaria/shared";
+import { getSessionDetailPageData } from "@/lib/data";
+
+export const dynamic = "force-dynamic";
 
 export default async function SessionDetailPage({
   params
@@ -8,18 +10,18 @@ export default async function SessionDetailPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
-  const session = recentSessions.find((item) => item.id === sessionId);
+  const data = await getSessionDetailPageData(sessionId);
 
-  if (!session) {
+  if (!data.session) {
     notFound();
   }
 
   return (
     <SessionDetail
-      session={session}
-      events={sessionEvents.filter((event) => event.sessionId === session.id)}
-      meterValues={meterValueSeries[session.id] ?? []}
-      logs={ocppLogs.filter((log) => log.sessionId === session.id)}
+      session={data.session}
+      events={data.events}
+      meterValues={data.meterValues}
+      logs={data.logs}
     />
   );
 }

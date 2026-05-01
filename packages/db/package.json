@@ -7,6 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./queries": "./src/queries.ts",
     "./schema": "./src/schema.ts"
   },
   "scripts": {
@@ -15,9 +17,12 @@
     "lint": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:seed": "tsx src/seed.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@voltaria/shared": "workspace:*",
     "drizzle-orm": "^0.43.1",
     "postgres": "^3.4.5"
   },
@@ -25,6 +30,7 @@
     "@types/node": "^22.15.3",
     "drizzle-kit": "^0.31.0",
     "tsup": "^8.4.0",
+    "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }
 }

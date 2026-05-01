@@ -230,6 +230,22 @@ export const residents: ResidentSummary[] = [
     monthlyKwh: 44.6,
     averageKwh: 14.9,
     monthlyCost: 245.3
+  },
+  {
+    id: "res_004",
+    propertyId: "prop_aurora",
+    name: "Diego Santos",
+    firstName: "Diego",
+    initials: "DS",
+    email: "diego.santos@example.com",
+    apartmentNumber: "0306",
+    propertyName: "Torre Aurora",
+    accessStatus: "success",
+    accessLabel: "Activo",
+    sessionsThisMonth: 2,
+    monthlyKwh: 32.4,
+    averageKwh: 16.2,
+    monthlyCost: 178.2
   }
 ];
 
