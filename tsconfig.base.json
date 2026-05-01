@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@voltaria/db": ["packages/db/src/index.ts"],
+      "@voltaria/db/*": ["packages/db/src/*"],
+      "@voltaria/shared": ["packages/shared/src/index.ts"],
+      "@voltaria/shared/*": ["packages/shared/src/*"],
+      "@voltaria/ui": ["packages/ui/src/index.ts"],
+      "@voltaria/ui/*": ["packages/ui/src/*"]
+    }
+  }
+}

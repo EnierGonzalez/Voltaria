@@ -1,0 +1,25 @@
+{
+  "name": "voltaria",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter @voltaria/web dev",
+    "dev:ocpp": "pnpm --filter @voltaria/ocpp-server dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @voltaria/db db:generate",
+    "db:migrate": "pnpm --filter @voltaria/db db:migrate",
+    "db:studio": "pnpm --filter @voltaria/db db:studio"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  }
+}
