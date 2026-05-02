@@ -10,6 +10,10 @@ export type BillingStatus = "paid" | "pending";
 
 export type AccessStatus = "success" | "warning";
 
+export type RfidCredentialStatus = "active" | "suspended";
+
+export type MobileAccessStatus = "active" | "missing" | "suspended";
+
 export type PropertySummary = {
   id: PropertyId;
   name: string;
@@ -70,6 +74,23 @@ export type ResidentSummary = {
   monthlyKwh: number;
   averageKwh: number;
   monthlyCost: number;
+};
+
+export type MobileAccessCredential = {
+  id: string;
+  label: string;
+  maskedValue: string;
+  status: RfidCredentialStatus;
+  statusLabel: string;
+  residentName: string;
+  apartmentNumber: string;
+  propertyName: string;
+};
+
+export type MobileAccessSummary = {
+  status: MobileAccessStatus;
+  statusLabel: string;
+  credential?: MobileAccessCredential;
 };
 
 export type AlertSummary = {

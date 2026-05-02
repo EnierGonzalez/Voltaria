@@ -6,6 +6,7 @@ import type {
   ChargingSessionSummary,
   ConsumptionPoint,
   MeterValuePoint,
+  MobileAccessCredential,
   OcppLogSummary,
   PropertySummary,
   ResidentSummary,
@@ -22,6 +23,7 @@ import {
   meterValues,
   ocppMessages,
   properties,
+  residentCredentials,
   residents,
   tariffs
 } from "./schema";
@@ -311,6 +313,49 @@ export async function getResidents(db: VoltariaDb, propertyId: string): Promise<
       monthlyCost
     };
   });
+}
+
+export async function getResidentRfidCredential(
+  db: VoltariaDb,
+  propertyId: string
+): Promise<MobileAccessCredential | null> {
+  const [row] = await db
+    .select({
+      id: residentCredentials.id,
+      labelSource: residentCredentials.metadata,
+      residentName: residents.fullName,
+      apartmentNumber: apartments.number,
+      propertyName: properties.name
+    })
+    .from(residentCredentials)
+    .innerJoin(residents, eq(residents.id, residentCredentials.residentId))
+    .innerJoin(properties, eq(properties.id, residents.propertyId))
+    .leftJoin(apartments, eq(apartments.id, residents.apartmentId))
+    .where(
+      and(
+        eq(residents.propertyId, propertyId),
+        eq(residentCredentials.credentialType, "rfid")
+      )
+    )
+    .orderBy(desc(residentCredentials.updatedAt))
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  const metadata = normalizeRfidMetadata(row.labelSource);
+
+  return {
+    id: row.id,
+    label: metadata.label,
+    maskedValue: metadata.maskedValue,
+    status: metadata.status,
+    statusLabel: metadata.status === "active" ? "Activa" : "Suspendida",
+    residentName: row.residentName,
+    apartmentNumber: row.apartmentNumber ?? "Sin depto",
+    propertyName: row.propertyName
+  };
 }
 
 export async function getAlerts(db: VoltariaDb, propertyId: string): Promise<AlertSummary[]> {
@@ -614,6 +659,28 @@ function seriesLimit(range: ConsumptionRange) {
   }
 
   return 7;
+}
+
+function normalizeRfidMetadata(metadata: unknown) {
+  const record =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : {};
+
+  const rawStatus = record.status;
+  const status: MobileAccessCredential["status"] =
+    rawStatus === "suspended" ? "suspended" : "active";
+  const label = typeof record.label === "string" ? record.label : "Tarjeta RFID principal";
+  const maskedValue =
+    typeof record.maskedValue === "string" && record.maskedValue.trim().length > 0
+      ? record.maskedValue
+      : "****A91F";
+
+  return {
+    label,
+    maskedValue,
+    status
+  };
 }
 
 function summarizePayload(payload: unknown) {

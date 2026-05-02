@@ -251,6 +251,23 @@ export const residents: ResidentSummary[] = [
 
 export const mobileResident = residents[0]!;
 
+export const mobileAccessCredential = {
+  id: "cred_rfid_001",
+  label: "Tarjeta RFID principal",
+  maskedValue: "****A91F",
+  status: "active",
+  statusLabel: "Activa",
+  residentName: mobileResident.name,
+  apartmentNumber: mobileResident.apartmentNumber,
+  propertyName: mobileResident.propertyName
+} as const;
+
+export const mobileAccessSummary = {
+  status: "active",
+  statusLabel: "Acceso activo",
+  credential: mobileAccessCredential
+} as const;
+
 export const recentAlerts: AlertSummary[] = [
   {
     id: "alt_001",

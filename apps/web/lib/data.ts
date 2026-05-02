@@ -10,6 +10,7 @@ import {
   getMeterValueSeries,
   getOcppLogs,
   getRecentSessions,
+  getResidentRfidCredential,
   getResidents,
   getSessionById,
   getTariffs
@@ -19,6 +20,7 @@ import {
   consumptionSeries,
   dashboardStats,
   meterValueSeries,
+  mobileAccessSummary,
   monthlyConsumptionSeries,
   ocppLogs,
   recentAlerts,
@@ -34,6 +36,7 @@ import {
   type ChargingSessionSummary,
   type ConsumptionPoint,
   type MeterValuePoint,
+  type MobileAccessSummary,
   type OcppLogSummary,
   type ResidentSummary,
   type SessionEventSummary,
@@ -218,6 +221,28 @@ export async function getSessionDetailPageData(sessionId: string): Promise<Sessi
       };
     }
   );
+}
+
+export async function getMobileAccessData(): Promise<MobileAccessSummary> {
+  return withDatabaseFallback<MobileAccessSummary>(mobileAccessSummary, async ({ db }) => {
+    const property = await getDefaultProperty(db);
+
+    if (!property) {
+      return mobileAccessSummary;
+    }
+
+    const credential = await getResidentRfidCredential(db, property.id);
+
+    if (!credential) {
+      return mobileAccessSummary;
+    }
+
+    return {
+      status: credential.status === "active" ? "active" : "suspended",
+      statusLabel: credential.status === "active" ? "Acceso activo" : "Tarjeta suspendida",
+      credential
+    };
+  });
 }
 
 async function withDatabaseFallback<T>(

@@ -1,27 +1,28 @@
 "use client";
 
 import {
+  AlertTriangle,
   Clock3,
   CreditCard,
   KeyRound,
   LineChart,
   PlugZap,
-  QrCode,
   ShieldCheck,
-  Timer,
   Zap
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { SectionCard, StatusBadge } from "@voltaria/ui";
 import {
   formatCurrency,
   formatDuration,
   formatKwh,
   formatPower,
+  mobileAccessSummary,
   mobileMonthlyStatsSeries,
   mobileResident,
   mobileSessions,
-  mobileWeeklyStatsSeries
+  mobileWeeklyStatsSeries,
+  type MobileAccessSummary
 } from "@voltaria/shared";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ConsumptionChart } from "./consumption-chart";
@@ -162,62 +163,155 @@ export function MobileStatsScreen() {
   );
 }
 
-export function MobileAccessScreen() {
-  const [secondsLeft, setSecondsLeft] = useState(300);
+export function MobileAccessScreen({
+  data = mobileAccessSummary
+}: {
+  data?: MobileAccessSummary;
+}) {
+  const [infoDialog, setInfoDialog] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setSecondsLeft((value) => (value > 0 ? value - 1 : 300));
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const minutes = Math.floor(secondsLeft / 60);
-  const seconds = secondsLeft % 60;
+  const credential = data.credential;
+  const isActive = data.status === "active" && credential?.status === "active";
+  const isSuspended = data.status === "suspended" || credential?.status === "suspended";
+  const statusVariant = isActive ? "success" : "warning";
 
   return (
     <div className="space-y-5">
       <SectionCard
-        title="Access"
-        description="Credencial de residente"
-        action={<StatusBadge variant="success">Acceso autorizado</StatusBadge>}
+        title="Acceso"
+        description="Usa tu tarjeta RFID para iniciar una sesión de carga."
+        action={<StatusBadge variant={statusVariant}>{data.statusLabel}</StatusBadge>}
       >
         <div className="space-y-4">
-          <div className="rounded-lg border border-cyan/30 bg-panel2 p-5">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-cyan">
-                <KeyRound className="h-6 w-6" aria-hidden="true" />
+          {credential ? (
+            <div
+              className={
+                isSuspended
+                  ? "rounded-lg border border-warning/35 bg-warning/10 p-5"
+                  : "rounded-lg border border-cyan/30 bg-panel2 p-5"
+              }
+            >
+              <div className="flex min-w-0 items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className={
+                      isSuspended
+                        ? "flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-warning/30 bg-panel text-warning"
+                        : "flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-cyan"
+                    }
+                  >
+                    {isSuspended ? (
+                      <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+                    ) : (
+                      <KeyRound className="h-6 w-6" aria-hidden="true" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-muted">Tarjeta RFID principal</p>
+                    <p className="mt-1 truncate text-xl font-semibold text-foreground">
+                      {credential.maskedValue}
+                    </p>
+                  </div>
+                </div>
+                <StatusBadge variant={isSuspended ? "warning" : "success"}>
+                  {credential.statusLabel}
+                </StatusBadge>
               </div>
-              <StatusBadge variant="success">RFID activa</StatusBadge>
-            </div>
-            <p className="mt-6 text-sm text-muted">Residente</p>
-            <p className="mt-1 truncate text-xl font-semibold text-foreground">{mobileResident.name}</p>
-            <p className="mt-4 text-sm text-muted">RFID</p>
-            <p className="mt-1 truncate text-lg font-semibold text-foreground">RFID-AUR-1204-ML</p>
-          </div>
 
-          <div className="rounded-lg border border-border bg-panel2/64 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <QrCode className="h-5 w-5 shrink-0 text-cyan" aria-hidden="true" />
-                <p className="truncate text-sm font-medium text-foreground">QR temporal</p>
-              </div>
-              <div className="flex items-center gap-1 text-xs text-warning">
-                <Timer className="h-3.5 w-3.5" aria-hidden="true" />
-                {minutes}:{seconds.toString().padStart(2, "0")}
+              <p className="mt-4 text-xs leading-5 text-muted">
+                Por seguridad, solo mostramos los últimos caracteres de tu tarjeta.
+              </p>
+
+              {isSuspended ? (
+                <div className="mt-4 rounded-md border border-warning/25 bg-panel/70 p-3 text-sm text-warning">
+                  Tu tarjeta RFID está suspendida. Contacta a administración para revisar tu acceso.
+                </div>
+              ) : null}
+
+              <div className="mt-5 grid gap-3">
+                <MobileMetricCard label="Residente" value={credential.residentName} />
+                <div className="grid grid-cols-2 gap-3">
+                  <MobileMetricCard label="Departamento" value={credential.apartmentNumber} />
+                  <MobileMetricCard label="Estado" value={credential.statusLabel} />
+                </div>
+                <MobileMetricCard
+                  label="Propiedad"
+                  value={credential.propertyName}
+                  icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />}
+                />
               </div>
             </div>
-            <MockQr />
-          </div>
+          ) : (
+            <div className="rounded-lg border border-warning/35 bg-warning/10 p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-warning/30 bg-panel text-warning">
+                  <KeyRound className="h-6 w-6" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-base font-semibold text-foreground">
+                    No tienes una tarjeta RFID asignada.
+                  </p>
+                  <p className="mt-1 text-sm leading-5 text-muted">
+                    Contacta a administración para solicitar una tarjeta.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-          <MobileMetricCard
-            label="Propiedad"
-            value={mobileResident.propertyName}
-            icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />}
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                setInfoDialog({
+                  title: "Reportar tarjeta perdida",
+                  description:
+                    "Para bloquear una tarjeta perdida, contacta a administración. En una fase posterior este flujo permitirá bloquearla directamente desde la app."
+                })
+              }
+              className="min-h-11 rounded-md border border-border bg-panel2 px-3 text-sm font-semibold text-foreground transition hover:border-warning/50 hover:text-warning"
+            >
+              Reportar tarjeta perdida
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setInfoDialog({
+                  title: "Solicitar reemplazo",
+                  description:
+                    "Administración deberá desactivar tu tarjeta anterior y asignarte una nueva tarjeta RFID."
+                })
+              }
+              className="min-h-11 rounded-md border border-border bg-panel2 px-3 text-sm font-semibold text-foreground transition hover:border-cyan/50 hover:text-cyan"
+            >
+              Solicitar reemplazo
+            </button>
+          </div>
         </div>
       </SectionCard>
+
+      <SectionCard title="Cómo iniciar una carga" description="Autorización con tarjeta física">
+        <ol className="space-y-3">
+          {[
+            "Conecta tu vehículo al cargador.",
+            "Pasa tu tarjeta RFID por el lector del cargador.",
+            "Espera la autorización.",
+            "La carga iniciará si tu acceso está activo."
+          ].map((step, index) => (
+            <li key={step} className="flex gap-3 rounded-lg border border-border bg-panel2/64 p-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-cyan/30 bg-cyan/10 text-xs font-semibold text-cyan">
+                {index + 1}
+              </span>
+              <span className="min-w-0 text-sm leading-6 text-foreground">{step}</span>
+            </li>
+          ))}
+        </ol>
+      </SectionCard>
+
+      <InfoDialog dialog={infoDialog} onClose={() => setInfoDialog(null)} />
     </div>
   );
 }
@@ -348,21 +442,30 @@ function Mini({
   );
 }
 
-function MockQr() {
-  const activeCells = new Set([
-    0, 1, 2, 4, 6, 7, 8, 9, 12, 14, 17, 18, 20, 22, 24, 26, 29, 30, 32, 35, 38,
-    40, 42, 43, 46, 48, 50, 53, 54, 56, 58, 60, 62, 63, 64, 66, 68, 72, 74, 76,
-    78, 80
-  ]);
+function InfoDialog({
+  dialog,
+  onClose
+}: {
+  dialog: { title: string; description: string } | null;
+  onClose: () => void;
+}) {
+  if (!dialog) {
+    return null;
+  }
 
   return (
-    <div className="mx-auto mt-4 grid h-40 w-40 grid-cols-9 gap-1 rounded-lg border border-border bg-panel p-3">
-      {Array.from({ length: 81 }, (_, index) => (
-        <div
-          key={index}
-          className={activeCells.has(index) ? "rounded-sm bg-cyan" : "rounded-sm bg-panel2"}
-        />
-      ))}
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/74 p-4 backdrop-blur sm:items-center">
+      <div className="w-full max-w-sm rounded-lg border border-border bg-panel p-4 shadow-premium">
+        <h2 className="text-base font-semibold text-foreground">{dialog.title}</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">{dialog.description}</p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 min-h-10 w-full rounded-md border border-cyan/40 bg-cyan/10 px-3 text-sm font-semibold text-cyan transition hover:bg-cyan/15"
+        >
+          Entendido
+        </button>
+      </div>
     </div>
   );
 }

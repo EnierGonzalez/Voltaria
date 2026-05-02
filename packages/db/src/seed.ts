@@ -109,6 +109,23 @@ async function seed() {
   );
 
   const residentsByName = new Map(residentRows.map((resident) => [resident.fullName, resident]));
+  const primaryResident = residentsByName.get("María López") ?? residentRows[0];
+
+  if (primaryResident) {
+    await db.insert(residentCredentials).values({
+      residentId: primaryResident.id,
+      providerKey: "local-rfid",
+      providerSubject: "rfid:torre-aurora:1204:primary",
+      credentialType: "rfid",
+      passwordHash: "dev-only-rfid-hash-not-a-real-token",
+      metadata: {
+        label: "Tarjeta RFID principal",
+        maskedValue: "****A91F",
+        status: "active",
+        seeded: true
+      }
+    });
+  }
 
   const chargerRows = await db
     .insert(chargers)
