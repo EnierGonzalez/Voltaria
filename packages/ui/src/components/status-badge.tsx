@@ -7,6 +7,7 @@ export type StatusVariant =
   | "offline"
   | "faulted"
   | "reserved"
+  | "pending_start"
   | "active"
   | "completed"
   | "interrupted"
@@ -25,6 +26,7 @@ const variantClasses: Record<StatusVariant, string> = {
   offline: "border-muted/20 bg-muted/10 text-muted",
   faulted: "border-danger/30 bg-danger/10 text-danger",
   reserved: "border-primary/30 bg-primary/10 text-primary",
+  pending_start: "border-warning/30 bg-warning/10 text-warning",
   active: "border-cyan/30 bg-cyan/10 text-cyan",
   completed: "border-success/30 bg-success/10 text-success",
   interrupted: "border-warning/30 bg-warning/10 text-warning",

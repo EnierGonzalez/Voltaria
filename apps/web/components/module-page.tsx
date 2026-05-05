@@ -20,6 +20,7 @@ import {
   type BillingRecordSummary,
   type ChargerSummary,
   type ChargingSessionSummary,
+  type ControlledOutletSummary,
   type ConsumptionPoint,
   type ResidentSummary,
   type TariffSummary,
@@ -34,7 +35,8 @@ import {
   recentSessions,
   residents,
   tariffs,
-  towerChargers,
+  chargingPoints,
+  towerOutlets,
   weeklyConsumptionSeries
 } from "@voltaria/shared";
 import { AlertItem } from "./alert-item";
@@ -44,6 +46,7 @@ import { SessionTable } from "./session-table";
 
 type ModuleKey =
   | "chargers"
+  | "outlets"
   | "sessions"
   | "residents"
   | "billing"
@@ -54,6 +57,7 @@ type ModuleKey =
 
 export type ModulePageData = {
   chargers: ChargerSummary[];
+  outlets: ControlledOutletSummary[];
   sessions: ChargingSessionSummary[];
   residents: ResidentSummary[];
   billingRecords: BillingRecordSummary[];
@@ -65,7 +69,8 @@ export type ModulePageData = {
 };
 
 const defaultData: ModulePageData = {
-  chargers: towerChargers,
+  chargers: chargingPoints,
+  outlets: towerOutlets,
   sessions: recentSessions,
   residents,
   billingRecords,
@@ -78,8 +83,12 @@ const defaultData: ModulePageData = {
 
 const moduleCopy: Record<ModuleKey, { title: string; description: string }> = {
   chargers: {
-    title: "Chargers",
-    description: "Inventario, conectores y estado operativo por torre"
+    title: "Puntos de carga",
+    description: "Tomas controladas y cargadores OCPP futuros"
+  },
+  outlets: {
+    title: "Tomas 120V",
+    description: "Control, medición y disponibilidad por toma"
   },
   sessions: {
     title: "Sessions",
@@ -149,6 +158,8 @@ function primaryValue(module: ModuleKey, data: ModulePageData) {
   switch (module) {
     case "chargers":
       return data.chargers.length.toString();
+    case "outlets":
+      return data.outlets.length.toString();
     case "sessions":
       return data.sessions.length.toString();
     case "residents":
@@ -171,6 +182,8 @@ function moduleIcon(module: ModuleKey) {
   switch (module) {
     case "chargers":
       return <PlugZap className={className} aria-hidden="true" />;
+    case "outlets":
+      return <Gauge className={className} aria-hidden="true" />;
     case "sessions":
       return <Zap className={className} aria-hidden="true" />;
     case "residents":
@@ -192,6 +205,8 @@ function renderModule(module: ModuleKey, data: ModulePageData) {
   switch (module) {
     case "chargers":
       return <ChargersModule chargers={data.chargers} />;
+    case "outlets":
+      return <OutletsModule outlets={data.outlets} />;
     case "sessions":
       return <SessionsModule sessions={data.sessions} />;
     case "residents":
@@ -211,10 +226,48 @@ function renderModule(module: ModuleKey, data: ModulePageData) {
 
 function ChargersModule({ chargers }: { chargers: ChargerSummary[] }) {
   return (
-    <SectionCard title="Inventario de cargadores" description="Estado por conector y ubicación">
+    <SectionCard title="Inventario de puntos de carga" description="Tomas 120V y compatibilidad OCPP">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {chargers.map((charger) => (
           <ChargerStatusCard key={charger.id} charger={charger} />
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
+  return (
+    <SectionCard title="Tomas controladas 120V" description="16 canales simulados listos para hardware futuro">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {outlets.map((outlet) => (
+          <a
+            key={outlet.id}
+            href={`/chargers/${outlet.id}`}
+            className="block min-w-0 overflow-hidden rounded-lg border border-border bg-panel2/64 p-4 transition hover:border-cyan/50 hover:bg-panel2"
+          >
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-foreground">{outlet.name}</p>
+                <p className="mt-1 truncate text-sm text-muted">{outlet.location}</p>
+              </div>
+              <StatusBadge variant={outlet.status}>{outlet.statusLabel}</StatusBadge>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <MiniStat label="Potencia" value={formatPower(outlet.currentPowerKw)} />
+              <MiniStat label="Sesión" value={formatKwh(outlet.currentSessionKwh)} />
+              <MiniStat label="Voltaje" value={`${outlet.voltage} V`} />
+              <MiniStat label="Límite" value={`${outlet.maxCurrentAmp} A`} />
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs font-semibold text-success">
+                Habilitar
+              </span>
+              <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning">
+                Deshabilitar
+              </span>
+            </div>
+          </a>
         ))}
       </div>
     </SectionCard>
@@ -389,6 +442,15 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-border bg-panel/60 p-3">
       <p className="text-xs uppercase tracking-[0.16em] text-muted">{label}</p>
       <p className="mt-2 text-sm font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-panel/70 p-2">
+      <p className="truncate text-[10px] uppercase tracking-[0.14em] text-muted">{label}</p>
+      <p className="mt-1 truncate text-xs font-semibold text-foreground">{value}</p>
     </div>
   );
 }

@@ -32,6 +32,7 @@ export const connectorStatusEnum = pgEnum("connector_status", [
 ]);
 
 export const sessionStatusEnum = pgEnum("session_status", [
+  "pending_start",
   "active",
   "completed",
   "interrupted",
@@ -45,6 +46,35 @@ export const alertStatusEnum = pgEnum("alert_status", ["open", "acknowledged", "
 export const billingStatusEnum = pgEnum("billing_status", ["draft", "pending", "paid", "void"]);
 
 export const ocppDirectionEnum = pgEnum("ocpp_direction", ["inbound", "outbound"]);
+
+export const chargingPointKindEnum = pgEnum("charging_point_kind", [
+  "ocpp_charger",
+  "controlled_outlet"
+]);
+
+export const controlModeEnum = pgEnum("control_mode", [
+  "simulated",
+  "mqtt",
+  "http",
+  "modbus",
+  "lorawan"
+]);
+
+export const activationMethodEnum = pgEnum("activation_method", ["rfid", "mobile", "admin"]);
+
+export const deviceCommandTypeEnum = pgEnum("device_command_type", [
+  "enable",
+  "disable",
+  "read_status"
+]);
+
+export const deviceCommandStatusEnum = pgEnum("device_command_status", [
+  "pending",
+  "sent",
+  "acknowledged",
+  "failed",
+  "timeout"
+]);
 
 export const systemEventSeverityEnum = pgEnum("system_event_severity", [
   "info",
@@ -139,6 +169,7 @@ export const chargers = pgTable(
     propertyId: uuid("property_id")
       .references(() => properties.id, { onDelete: "cascade" })
       .notNull(),
+    kind: chargingPointKindEnum("kind").default("ocpp_charger").notNull(),
     ocppIdentity: varchar("ocpp_identity", { length: 120 }).notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     location: varchar("location", { length: 160 }),
@@ -147,7 +178,11 @@ export const chargers = pgTable(
     serialNumber: varchar("serial_number", { length: 120 }),
     firmwareVersion: varchar("firmware_version", { length: 120 }),
     status: chargerStatusEnum("status").default("offline").notNull(),
+    voltage: integer("voltage"),
+    maxCurrentAmp: numeric("max_current_amp", { precision: 8, scale: 2 }),
     maxPowerKw: numeric("max_power_kw", { precision: 8, scale: 2 }),
+    publicAccessCode: varchar("public_access_code", { length: 120 }),
+    controlMode: controlModeEnum("control_mode").default("simulated").notNull(),
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     ...timestamps
   },
@@ -156,7 +191,8 @@ export const chargers = pgTable(
       table.propertyId,
       table.ocppIdentity
     ),
-    propertyStatusIdx: index("chargers_property_status_idx").on(table.propertyId, table.status)
+    propertyStatusIdx: index("chargers_property_status_idx").on(table.propertyId, table.status),
+    publicAccessCodeIdx: uniqueIndex("chargers_public_access_code_idx").on(table.publicAccessCode)
   })
 );
 
@@ -201,6 +237,7 @@ export const chargingSessions = pgTable(
     residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
     apartmentId: uuid("apartment_id").references(() => apartments.id, { onDelete: "set null" }),
     ocppTransactionId: integer("ocpp_transaction_id"),
+    activationMethod: activationMethodEnum("activation_method"),
     status: sessionStatusEnum("status").default("active").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
@@ -223,6 +260,34 @@ export const chargingSessions = pgTable(
     transactionIdx: uniqueIndex("charging_sessions_ocpp_transaction_idx").on(
       table.chargerId,
       table.ocppTransactionId
+    )
+  })
+);
+
+export const deviceCommands = pgTable(
+  "device_commands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    chargerId: uuid("charger_id").references(() => chargers.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").references(() => chargingSessions.id, { onDelete: "set null" }),
+    commandType: deviceCommandTypeEnum("command_type").notNull(),
+    status: deviceCommandStatusEnum("status").default("pending").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
+    requestedBy: varchar("requested_by", { length: 120 }),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    propertyStatusIdx: index("device_commands_property_status_idx").on(
+      table.propertyId,
+      table.status
+    ),
+    chargerCreatedIdx: index("device_commands_charger_created_idx").on(
+      table.chargerId,
+      table.createdAt
     )
   })
 );
@@ -392,7 +457,8 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   apartments: many(apartments),
   residents: many(residents),
   chargers: many(chargers),
-  tariffs: many(tariffs)
+  tariffs: many(tariffs),
+  deviceCommands: many(deviceCommands)
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -427,7 +493,8 @@ export const chargersRelations = relations(chargers, ({ one, many }) => ({
   connectors: many(chargerConnectors),
   sessions: many(chargingSessions),
   alerts: many(alerts),
-  ocppMessages: many(ocppMessages)
+  ocppMessages: many(ocppMessages),
+  deviceCommands: many(deviceCommands)
 }));
 
 export const chargerConnectorsRelations = relations(chargerConnectors, ({ one, many }) => ({
@@ -466,7 +533,8 @@ export const chargingSessionsRelations = relations(chargingSessions, ({ one, man
   }),
   meterValues: many(meterValues),
   alerts: many(alerts),
-  billingRecords: many(billingRecords)
+  billingRecords: many(billingRecords),
+  deviceCommands: many(deviceCommands)
 }));
 
 export const meterValuesRelations = relations(meterValues, ({ one }) => ({
@@ -560,11 +628,28 @@ export const systemEventsRelations = relations(systemEvents, ({ one }) => ({
   })
 }));
 
+export const deviceCommandsRelations = relations(deviceCommands, ({ one }) => ({
+  property: one(properties, {
+    fields: [deviceCommands.propertyId],
+    references: [properties.id]
+  }),
+  charger: one(chargers, {
+    fields: [deviceCommands.chargerId],
+    references: [chargers.id]
+  }),
+  session: one(chargingSessions, {
+    fields: [deviceCommands.sessionId],
+    references: [chargingSessions.id]
+  })
+}));
+
 export type Property = typeof properties.$inferSelect;
 export type NewProperty = typeof properties.$inferInsert;
 export type ChargingSession = typeof chargingSessions.$inferSelect;
 export type NewChargingSession = typeof chargingSessions.$inferInsert;
 export type OcppMessageRecord = typeof ocppMessages.$inferSelect;
 export type NewOcppMessageRecord = typeof ocppMessages.$inferInsert;
+export type DeviceCommand = typeof deviceCommands.$inferSelect;
+export type NewDeviceCommand = typeof deviceCommands.$inferInsert;
 
 export const healthcheckSql = sql`select 1`;

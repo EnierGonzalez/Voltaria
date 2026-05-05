@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Voltaria",
-  description: "Control y monitoreo de cargadores eléctricos residenciales",
+  description: "Control y monitoreo de puntos de carga residenciales",
   applicationName: "Voltaria",
   manifest: "/manifest.webmanifest"
 };

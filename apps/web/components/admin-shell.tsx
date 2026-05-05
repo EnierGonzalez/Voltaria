@@ -19,7 +19,8 @@ import { mockProperties } from "@voltaria/shared";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Chargers", href: "/chargers", icon: PlugZap },
+  { label: "Puntos", href: "/chargers", icon: PlugZap },
+  { label: "Tomas", href: "/outlets", icon: Zap },
   { label: "Sessions", href: "/sessions", icon: Zap },
   { label: "Residents", href: "/residents", icon: UsersRound },
   { label: "Billing", href: "/billing", icon: CreditCard },
@@ -31,7 +32,8 @@ const navItems = [
 
 const titleByPath: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/chargers": "Chargers",
+  "/chargers": "Puntos de carga",
+  "/outlets": "Tomas 120V",
   "/sessions": "Sessions",
   "/residents": "Residents",
   "/billing": "Billing",
@@ -46,7 +48,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const title =
     titleByPath[pathname] ??
     (pathname.startsWith("/chargers/")
-      ? "Charger Detail"
+      ? "Detalle de punto"
+      : pathname.startsWith("/outlets")
+        ? "Tomas 120V"
       : pathname.startsWith("/sessions/")
         ? "Session Detail"
         : "Voltaria");
@@ -58,7 +62,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <SidebarNav
           brand={{
             name: "Voltaria",
-            subtitle: "EV Charging OS"
+            subtitle: "Charging Point OS"
           }}
           items={navItems.map((item) => {
             const Icon = item.icon;

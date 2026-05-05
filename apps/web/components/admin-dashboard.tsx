@@ -25,7 +25,7 @@ import {
   monthlyConsumptionSeries,
   recentAlerts,
   recentSessions,
-  towerChargers,
+  chargingPoints,
   weeklyConsumptionSeries
 } from "@voltaria/shared";
 import { AlertItem } from "./alert-item";
@@ -46,7 +46,7 @@ export type AdminDashboardData = {
 
 const defaultData: AdminDashboardData = {
   dashboardStats,
-  chargers: towerChargers,
+  chargers: chargingPoints,
   sessions: recentSessions,
   alerts: recentAlerts,
   consumptionSeries,
@@ -75,7 +75,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
         <InteractiveStatCard
           title="Sesiones activas"
           value={data.dashboardStats.activeSessions.toString()}
-          delta={`${data.dashboardStats.availableConnectors} conectores disponibles`}
+          delta={`${data.dashboardStats.availableConnectors} tomas disponibles`}
           href="/sessions?status=active"
           tone="success"
           icon={<Zap className="h-5 w-5" aria-hidden="true" />}
@@ -107,7 +107,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
           }}
         />
 
-        <SectionCard title="Estado de cargadores" description="Conectores por disponibilidad">
+        <SectionCard title="Estado de tomas" description="Puntos 120V por disponibilidad">
           <div className="max-h-[580px] space-y-3 overflow-y-auto pr-1">
             {data.chargers.slice(0, 5).map((charger) => (
               <ChargerStatusCard key={charger.id} charger={charger} compact />

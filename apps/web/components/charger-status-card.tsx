@@ -11,6 +11,7 @@ export function ChargerStatusCard({
   compact?: boolean;
 }) {
   const faulted = charger.status === "faulted";
+  const isOutlet = charger.kind === "controlled_outlet";
 
   return (
     <Link
@@ -40,15 +41,15 @@ export function ChargerStatusCard({
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2">
-        <Mini label="Conectores" value={charger.connectors.toString()} />
-        <Mini label="Potencia" value={formatPower(charger.maxPowerKw)} />
-        <Mini label="OCPP" value={charger.ocppVersion} />
+        <Mini label={isOutlet ? "Voltaje" : "Conectores"} value={isOutlet ? `${charger.voltage ?? 120} V` : charger.connectors.toString()} />
+        <Mini label={isOutlet ? "Actual" : "Potencia"} value={formatPower(isOutlet ? charger.currentPowerKw ?? 0 : charger.maxPowerKw)} />
+        <Mini label={isOutlet ? "Sesión" : "OCPP"} value={isOutlet ? `${(charger.currentSessionKwh ?? 0).toFixed(1)} kWh` : charger.ocppVersion} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
         <QuickAction icon={<SquareArrowOutUpRight className="h-3.5 w-3.5" />} label="Ver detalle" />
-        <QuickAction icon={<Zap className="h-3.5 w-3.5" />} label="Ver sesiones" />
-        <QuickAction icon={<ScrollText className="h-3.5 w-3.5" />} label="Logs OCPP" />
+        <QuickAction icon={<Zap className="h-3.5 w-3.5" />} label={isOutlet ? "Habilitar" : "Ver sesiones"} />
+        <QuickAction icon={<ScrollText className="h-3.5 w-3.5" />} label={isOutlet ? "Deshabilitar" : "Logs OCPP"} />
         {charger.status === "charging" && charger.currentSessionId ? (
           <span className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-success">
             Ver sesión

@@ -8,6 +8,13 @@
       "when": 1777657961293,
       "tag": "0000_abandoned_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778005168844,
+      "tag": "0001_clumsy_rocket_raccoon",
+      "breakpoints": true
     }
   ]
 }

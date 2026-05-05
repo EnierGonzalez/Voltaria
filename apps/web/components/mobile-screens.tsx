@@ -53,6 +53,12 @@ export function MobileHomeScreen() {
       <div className="grid gap-3">
         <ActiveChargeCard href="/mobile/charge" />
         <MobileMetricCard
+          label="Tomas disponibles"
+          value="Seleccionar toma 120V"
+          href="/mobile/outlets"
+          icon={<PlugZap className="h-4 w-4" aria-hidden="true" />}
+        />
+        <MobileMetricCard
           label="Historial"
           value={`${mobileSessions.length} sesiones recientes`}
           href="/mobile/history"

@@ -5,6 +5,7 @@ import type {
   ChargerSummary,
   ChargingSessionSummary,
   ConsumptionPoint,
+  ControlledOutletSummary,
   MeterValuePoint,
   MobileAccessCredential,
   OcppLogSummary,
@@ -48,6 +49,7 @@ const statusLabels = {
   offline: "Offline",
   faulted: "Falla",
   reserved: "Reservado",
+  pending_start: "Pendiente",
   active: "Activa",
   completed: "Completada",
   interrupted: "Interrumpida",
@@ -105,7 +107,7 @@ export async function getDashboardSummary(
     monthlyRevenue: billing.totalAmount,
     activeSessions: activeSessions.length,
     availableConnectors: chargersList
-      .filter((charger) => charger.status === "available")
+      .filter((charger) => charger.kind === "controlled_outlet" && charger.status === "available")
       .reduce((sum, charger) => sum + charger.connectors, 0),
     billingReady: billing.records.filter((record) => record.status === "pending").length,
     openAlerts: alertsList.length,
@@ -134,7 +136,9 @@ export async function getChargers(db: VoltariaDb, propertyId: string): Promise<C
   const activeRows = await db
     .select({
       id: chargingSessions.id,
-      chargerId: chargingSessions.chargerId
+      chargerId: chargingSessions.chargerId,
+      energyKwh: chargingSessions.energyKwh,
+      powerKw: sql<string>`coalesce(${chargingSessions.averagePowerKw}, ${chargingSessions.peakPowerKw}, 0)`
     })
     .from(chargingSessions)
     .where(and(eq(chargingSessions.propertyId, propertyId), eq(chargingSessions.status, "active")));
@@ -147,6 +151,7 @@ export async function getChargers(db: VoltariaDb, propertyId: string): Promise<C
     return {
       id: charger.id,
       propertyId: charger.propertyId,
+      kind: charger.kind,
       name: charger.name,
       code: charger.ocppIdentity,
       location: charger.location ?? "Sin ubicación",
@@ -156,6 +161,12 @@ export async function getChargers(db: VoltariaDb, propertyId: string): Promise<C
       maxPowerKw: toNumber(charger.maxPowerKw),
       ocppVersion: "1.6J",
       lastSeenAt: toIso(charger.lastHeartbeatAt ?? charger.updatedAt),
+      ...(charger.voltage ? { voltage: charger.voltage } : {}),
+      ...(charger.maxCurrentAmp ? { maxCurrentAmp: toNumber(charger.maxCurrentAmp) } : {}),
+      ...(charger.publicAccessCode ? { publicAccessCode: charger.publicAccessCode } : {}),
+      ...(charger.controlMode ? { controlMode: charger.controlMode } : {}),
+      currentPowerKw: active ? toNumber(active.powerKw) : 0,
+      currentSessionKwh: active ? toNumber(active.energyKwh) : 0,
       ...(active ? { currentSessionId: active.id } : {})
     };
   });
@@ -177,7 +188,11 @@ export async function getChargerById(
     .where(eq(chargerConnectors.chargerId, charger.id));
 
   const [active] = await db
-    .select({ id: chargingSessions.id })
+    .select({
+      id: chargingSessions.id,
+      energyKwh: chargingSessions.energyKwh,
+      powerKw: sql<string>`coalesce(${chargingSessions.averagePowerKw}, ${chargingSessions.peakPowerKw}, 0)`
+    })
     .from(chargingSessions)
     .where(and(eq(chargingSessions.chargerId, charger.id), eq(chargingSessions.status, "active")))
     .limit(1);
@@ -185,6 +200,7 @@ export async function getChargerById(
   return {
     id: charger.id,
     propertyId: charger.propertyId,
+    kind: charger.kind,
     name: charger.name,
     code: charger.ocppIdentity,
     location: charger.location ?? "Sin ubicación",
@@ -194,8 +210,49 @@ export async function getChargerById(
     maxPowerKw: toNumber(charger.maxPowerKw),
     ocppVersion: "1.6J",
     lastSeenAt: toIso(charger.lastHeartbeatAt ?? charger.updatedAt),
+    ...(charger.voltage ? { voltage: charger.voltage } : {}),
+    ...(charger.maxCurrentAmp ? { maxCurrentAmp: toNumber(charger.maxCurrentAmp) } : {}),
+    ...(charger.publicAccessCode ? { publicAccessCode: charger.publicAccessCode } : {}),
+    ...(charger.controlMode ? { controlMode: charger.controlMode } : {}),
+    currentPowerKw: active ? toNumber(active.powerKw) : 0,
+    currentSessionKwh: active ? toNumber(active.energyKwh) : 0,
     ...(active ? { currentSessionId: active.id } : {})
   };
+}
+
+export async function getControlledOutlets(
+  db: VoltariaDb,
+  propertyId: string
+): Promise<ControlledOutletSummary[]> {
+  const points = await getChargers(db, propertyId);
+
+  return points.filter((point): point is ControlledOutletSummary => {
+    return (
+      point.kind === "controlled_outlet" &&
+      typeof point.voltage === "number" &&
+      typeof point.maxCurrentAmp === "number" &&
+      typeof point.publicAccessCode === "string" &&
+      typeof point.controlMode === "string"
+    );
+  });
+}
+
+export async function getControlledOutletByPublicCode(
+  db: VoltariaDb,
+  publicCode: string
+): Promise<ControlledOutletSummary | null> {
+  const [charger] = await db
+    .select()
+    .from(chargers)
+    .where(and(eq(chargers.kind, "controlled_outlet"), eq(chargers.publicAccessCode, publicCode)))
+    .limit(1);
+
+  if (!charger) {
+    return null;
+  }
+
+  const outlets = await getControlledOutlets(db, charger.propertyId);
+  return outlets.find((outlet) => outlet.id === charger.id) ?? null;
 }
 
 export async function getRecentSessions(
@@ -219,6 +276,7 @@ export async function getRecentSessions(
       costAmount: chargingSessions.costAmount,
       tariffName: tariffs.name,
       ratePerKwh: tariffs.ratePerKwh,
+      activationMethod: chargingSessions.activationMethod,
       status: chargingSessions.status,
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt
@@ -256,6 +314,7 @@ export async function getSessionById(
       costAmount: chargingSessions.costAmount,
       tariffName: tariffs.name,
       ratePerKwh: tariffs.ratePerKwh,
+      activationMethod: chargingSessions.activationMethod,
       status: chargingSessions.status,
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt
@@ -555,7 +614,8 @@ function mapSessionRow(row: {
   costAmount: string;
   tariffName: string | null;
   ratePerKwh: string | null;
-  status: "active" | "completed" | "interrupted" | "failed";
+  activationMethod: "rfid" | "mobile" | "admin" | null;
+  status: "pending_start" | "active" | "completed" | "interrupted" | "failed";
   startedAt: Date;
   endedAt: Date | null;
 }): ChargingSessionSummary {
@@ -576,6 +636,7 @@ function mapSessionRow(row: {
     ratePerKwh: toNumber(row.ratePerKwh),
     status: row.status,
     statusLabel: statusLabels[row.status],
+    ...(row.activationMethod ? { activationMethod: row.activationMethod } : {}),
     startedAt: toIso(row.startedAt),
     ...(row.endedAt ? { endedAt: toIso(row.endedAt) } : {}),
     shortDate: formatShortDate(row.startedAt),

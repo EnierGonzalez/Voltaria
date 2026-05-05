@@ -1,8 +1,14 @@
 export type PropertyId = string;
 
+export type ChargingPointKind = "ocpp_charger" | "controlled_outlet";
+
+export type ControlMode = "simulated" | "mqtt" | "http" | "modbus" | "lorawan";
+
 export type ChargerStatus = "available" | "charging" | "offline" | "faulted" | "reserved";
 
-export type SessionStatus = "active" | "completed" | "interrupted" | "failed";
+export type SessionStatus = "pending_start" | "active" | "completed" | "interrupted" | "failed";
+
+export type ActivationMethod = "rfid" | "mobile" | "admin";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -24,6 +30,7 @@ export type PropertySummary = {
 export type ChargerSummary = {
   id: string;
   propertyId: PropertyId;
+  kind: ChargingPointKind;
   name: string;
   code: string;
   location: string;
@@ -33,7 +40,23 @@ export type ChargerSummary = {
   maxPowerKw: number;
   ocppVersion: "1.6J";
   lastSeenAt: string;
+  voltage?: number;
+  maxCurrentAmp?: number;
+  publicAccessCode?: string;
+  controlMode?: ControlMode;
+  currentPowerKw?: number;
+  currentSessionKwh?: number;
   currentSessionId?: string;
+};
+
+export type ControlledOutletSummary = ChargerSummary & {
+  kind: "controlled_outlet";
+  voltage: number;
+  maxCurrentAmp: number;
+  publicAccessCode: string;
+  controlMode: ControlMode;
+  currentPowerKw: number;
+  currentSessionKwh: number;
 };
 
 export type ChargingSessionSummary = {
@@ -53,6 +76,7 @@ export type ChargingSessionSummary = {
   ratePerKwh: number;
   status: SessionStatus;
   statusLabel: string;
+  activationMethod?: ActivationMethod;
   startedAt: string;
   endedAt?: string;
   shortDate: string;

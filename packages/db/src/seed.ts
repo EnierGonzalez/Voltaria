@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import {
   billingRecords as mockBillingRecords,
+  chargingPoints,
   meterValueSeries,
   mobileSessions,
   ocppLogs,
@@ -8,7 +9,7 @@ import {
   residents as mockResidents,
   sessionEvents,
   tariffs as mockTariffs,
-  towerChargers
+  towerOutlets
 } from "@voltaria/shared";
 import { createDbClient } from "./client";
 import { loadDatabaseEnv } from "./load-env";
@@ -19,6 +20,7 @@ import {
   chargerConnectors,
   chargers,
   chargingSessions,
+  deviceCommands,
   meterValues,
   ocppMessages,
   properties,
@@ -130,17 +132,22 @@ async function seed() {
   const chargerRows = await db
     .insert(chargers)
     .values(
-      towerChargers.map((charger) => ({
+      chargingPoints.map((charger) => ({
         propertyId: property.id,
+        kind: charger.kind,
         ocppIdentity: charger.code,
         name: charger.name,
         location: charger.location,
-        vendor: "Voltaria",
-        model: "AC Wallbox",
+        vendor: charger.kind === "controlled_outlet" ? "Voltaria Sim" : "Voltaria",
+        model: charger.kind === "controlled_outlet" ? "120V Controlled Outlet" : "AC Wallbox",
         serialNumber: charger.id,
         firmwareVersion: "1.6J-mock",
         status: charger.status,
+        voltage: charger.voltage,
+        maxCurrentAmp: charger.maxCurrentAmp?.toFixed(2),
         maxPowerKw: charger.maxPowerKw.toFixed(2),
+        publicAccessCode: charger.publicAccessCode,
+        controlMode: charger.controlMode ?? "simulated",
         lastHeartbeatAt: new Date(charger.lastSeenAt)
       }))
     )
@@ -151,7 +158,7 @@ async function seed() {
   const connectorRows = await db
     .insert(chargerConnectors)
     .values(
-      towerChargers.flatMap((charger) => {
+      chargingPoints.flatMap((charger) => {
         const chargerRow = chargersByCode.get(charger.code);
 
         if (!chargerRow) {
@@ -363,9 +370,40 @@ async function seed() {
       ];
     })
   );
+
+  await db.insert(deviceCommands).values(
+    towerOutlets
+      .filter((outlet) => outlet.status === "charging")
+      .flatMap((outlet) => {
+        const charger = chargersByCode.get(outlet.code);
+        const session = mobileSessions.find((item) => item.chargerCode === outlet.code);
+        const sessionRow = session ? sessionsByMockId.get(session.id) : undefined;
+
+        if (!charger) {
+          return [];
+        }
+
+        return [
+          {
+            propertyId: property.id,
+            chargerId: charger.id,
+            sessionId: sessionRow?.id,
+            commandType: "enable" as const,
+            status: "acknowledged" as const,
+            payload: {
+              adapter: "simulated",
+              voltage: outlet.voltage,
+              maxCurrentAmp: outlet.maxCurrentAmp
+            },
+            requestedBy: "seed:mobile",
+            acknowledgedAt: new Date()
+          }
+        ];
+      })
+  );
 }
 
-function connectorStatusFor(status: (typeof towerChargers)[number]["status"]) {
+function connectorStatusFor(status: (typeof chargingPoints)[number]["status"]) {
   if (status === "charging") {
     return "charging" as const;
   }

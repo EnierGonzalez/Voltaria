@@ -4,6 +4,8 @@ import {
   getBillingRecords,
   getChargers,
   getChargerById,
+  getControlledOutletByPublicCode,
+  getControlledOutlets,
   getConsumptionSeries,
   getDashboardSummary,
   getDefaultProperty,
@@ -17,6 +19,7 @@ import {
 } from "@voltaria/db";
 import {
   billingRecords,
+  chargingPoints,
   consumptionSeries,
   dashboardStats,
   meterValueSeries,
@@ -28,12 +31,13 @@ import {
   residents,
   sessionEvents,
   tariffs,
-  towerChargers,
+  towerOutlets,
   weeklyConsumptionSeries,
   type AlertSummary,
   type BillingRecordSummary,
   type ChargerSummary,
   type ChargingSessionSummary,
+  type ControlledOutletSummary,
   type ConsumptionPoint,
   type MeterValuePoint,
   type MobileAccessSummary,
@@ -55,6 +59,7 @@ export type DashboardPageData = {
 
 export type ModulePageData = {
   chargers: ChargerSummary[];
+  outlets: ControlledOutletSummary[];
   sessions: ChargingSessionSummary[];
   residents: ResidentSummary[];
   billingRecords: BillingRecordSummary[];
@@ -63,6 +68,13 @@ export type ModulePageData = {
   consumptionSeries: ConsumptionPoint[];
   weeklyConsumptionSeries: ConsumptionPoint[];
   monthlyConsumptionSeries: ConsumptionPoint[];
+};
+
+export type OutletsPageData = {
+  outlets: ControlledOutletSummary[];
+  sessions: ChargingSessionSummary[];
+  residents: ResidentSummary[];
+  tariffs: TariffSummary[];
 };
 
 export type ChargerDetailData = {
@@ -81,7 +93,7 @@ export type SessionDetailData = {
 
 const mockDashboardData: DashboardPageData = {
   dashboardStats,
-  chargers: towerChargers,
+  chargers: chargingPoints,
   sessions: recentSessions,
   alerts: recentAlerts,
   consumptionSeries,
@@ -90,7 +102,8 @@ const mockDashboardData: DashboardPageData = {
 };
 
 const mockModuleData: ModulePageData = {
-  chargers: towerChargers,
+  chargers: chargingPoints,
+  outlets: towerOutlets,
   sessions: recentSessions,
   residents,
   billingRecords,
@@ -99,6 +112,13 @@ const mockModuleData: ModulePageData = {
   consumptionSeries,
   weeklyConsumptionSeries,
   monthlyConsumptionSeries
+};
+
+const mockOutletsData: OutletsPageData = {
+  outlets: towerOutlets,
+  sessions: recentSessions,
+  residents,
+  tariffs
 };
 
 export async function getDashboardPageData(): Promise<DashboardPageData> {
@@ -133,6 +153,7 @@ export async function getModulePageData(): Promise<ModulePageData> {
 
     return {
       chargers: await getChargers(db, property.id),
+      outlets: await getControlledOutlets(db, property.id),
       sessions: await getRecentSessions(db, property.id, 50),
       residents: await getResidents(db, property.id),
       billingRecords: billingSummary,
@@ -145,8 +166,59 @@ export async function getModulePageData(): Promise<ModulePageData> {
   });
 }
 
+export async function getOutletsPageData(): Promise<OutletsPageData> {
+  return withDatabaseFallback(mockOutletsData, async ({ db }) => {
+    const property = await getDefaultProperty(db);
+
+    if (!property) {
+      return mockOutletsData;
+    }
+
+    const outlets = await getControlledOutlets(db, property.id);
+
+    return {
+      outlets: outlets.length > 0 ? outlets : towerOutlets,
+      sessions: await getRecentSessions(db, property.id, 50),
+      residents: await getResidents(db, property.id),
+      tariffs: await getTariffs(db, property.id)
+    };
+  });
+}
+
+export async function getOutletByPublicCodeData(publicCode: string): Promise<OutletsPageData & { outlet: ControlledOutletSummary | null }> {
+  const fallbackOutlet = towerOutlets.find((outlet) => outlet.publicAccessCode === publicCode) ?? null;
+
+  return withDatabaseFallback(
+    {
+      ...mockOutletsData,
+      outlet: fallbackOutlet
+    },
+    async ({ db }) => {
+      const property = await getDefaultProperty(db);
+
+      if (!property) {
+        return {
+          ...mockOutletsData,
+          outlet: fallbackOutlet
+        };
+      }
+
+      const outlet = await getControlledOutletByPublicCode(db, publicCode);
+      const outlets = await getControlledOutlets(db, property.id);
+
+      return {
+        outlets: outlets.length > 0 ? outlets : towerOutlets,
+        sessions: await getRecentSessions(db, property.id, 50),
+        residents: await getResidents(db, property.id),
+        tariffs: await getTariffs(db, property.id),
+        outlet: outlet ?? fallbackOutlet
+      };
+    }
+  );
+}
+
 export async function getChargerDetailPageData(chargerId: string): Promise<ChargerDetailData> {
-  const mockCharger = towerChargers.find((charger) => charger.id === chargerId) ?? null;
+  const mockCharger = chargingPoints.find((charger) => charger.id === chargerId) ?? null;
   const mockSessions = mockCharger
     ? recentSessions.filter((session) => session.chargerId === mockCharger.id)
     : [];

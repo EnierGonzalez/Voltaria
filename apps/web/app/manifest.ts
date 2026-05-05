@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Voltaria",
     short_name: "Voltaria",
-    description: "Monitoreo de cargadores eléctricos en torres residenciales",
+    description: "Monitoreo de puntos de carga residenciales",
     start_url: "/mobile/home",
     display: "standalone",
     background_color: "#060B14",

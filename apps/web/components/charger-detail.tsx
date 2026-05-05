@@ -31,6 +31,7 @@ export function ChargerDetail({
   const [stopped, setStopped] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const canStop = charger.status === "charging" && currentSession && !stopped;
+  const isOutlet = charger.kind === "controlled_outlet";
 
   return (
     <div className="space-y-6">
@@ -51,15 +52,15 @@ export function ChargerDetail({
         />
         <StatCard
           title="Conectores"
-          value={charger.connectors.toString()}
-          delta={`${formatPower(charger.maxPowerKw)} máximo`}
+          value={isOutlet ? `${charger.voltage ?? 120} V` : charger.connectors.toString()}
+          delta={isOutlet ? `${charger.maxCurrentAmp ?? 12} A máximo` : `${formatPower(charger.maxPowerKw)} máximo`}
           tone="cyan"
           icon={<Power className="h-5 w-5" aria-hidden="true" />}
         />
         <StatCard
           title="Última comunicación"
           value={formatDateTime(charger.lastSeenAt)}
-          delta={`OCPP ${charger.ocppVersion}`}
+          delta={isOutlet ? `Control ${charger.controlMode ?? "simulated"}` : `OCPP ${charger.ocppVersion}`}
           tone="success"
           icon={<ScrollText className="h-5 w-5" aria-hidden="true" />}
         />
@@ -72,7 +73,7 @@ export function ChargerDetail({
             <div className="min-w-0">
               <p className="font-medium">Cargador en falla</p>
               <p className="mt-1 text-sm text-danger/90">
-                El último evento OCPP reportó un estado faulted. Revisa logs antes de habilitarlo.
+                El último evento operativo reportó una falla. Revisa logs antes de habilitarlo.
               </p>
             </div>
           </div>
@@ -81,7 +82,7 @@ export function ChargerDetail({
 
       <SectionCard
         title="Sesión actual"
-        description="Datos de sesión del cargador seleccionado"
+        description={`Datos de sesión ${isOutlet ? "de la toma seleccionada" : "del cargador seleccionado"}`}
         action={
           canStop ? (
             <button
@@ -105,19 +106,19 @@ export function ChargerDetail({
             <Metric label="Potencia" value={formatPower(stopped ? 0 : currentSession.powerKw)} />
             <Metric label="Costo" value={formatCurrency(currentSession.costAmount)} />
             <Metric label="Tarifa" value={`${formatCurrency(currentSession.ratePerKwh)} / kWh`} />
-            <Metric label="Conector" value={currentSession.connectorNumber.toString()} />
+            <Metric label={isOutlet ? "Toma" : "Conector"} value={isOutlet ? charger.code : currentSession.connectorNumber.toString()} />
           </div>
         ) : (
-          <EmptyState title="Sin sesión activa" description="Este cargador no tiene una sesión activa en los datos mock." />
+          <EmptyState title="Sin sesión activa" description="Este punto de carga no tiene una sesión activa." />
         )}
       </SectionCard>
 
       <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-        <SectionCard title="Últimos mensajes OCPP" description="Mensajes crudos resumidos para auditoría">
+        <SectionCard title={isOutlet ? "Últimos eventos" : "Últimos mensajes OCPP"} description={isOutlet ? "Comandos y eventos simulados" : "Mensajes crudos resumidos para auditoría"}>
           <OcppLogList logs={logs} />
         </SectionCard>
 
-        <SectionCard title="Historial reciente" description="Sesiones asociadas a este cargador">
+        <SectionCard title="Historial reciente" description="Sesiones asociadas a este punto">
           <SessionTable sessions={sessions} />
         </SectionCard>
       </section>

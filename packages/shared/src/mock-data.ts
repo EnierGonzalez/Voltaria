@@ -3,6 +3,7 @@ import type {
   BillingRecordSummary,
   ChargerSummary,
   ChargingSessionSummary,
+  ControlledOutletSummary,
   ConsumptionPoint,
   MeterValuePoint,
   OcppLogSummary,
@@ -25,6 +26,7 @@ export const towerChargers: ChargerSummary[] = [
   {
     id: "chg_001",
     propertyId: "prop_aurora",
+    kind: "ocpp_charger",
     name: "Cargador P1 Norte",
     code: "AUR-P1-01",
     location: "Parking nivel 1",
@@ -39,6 +41,7 @@ export const towerChargers: ChargerSummary[] = [
   {
     id: "chg_002",
     propertyId: "prop_aurora",
+    kind: "ocpp_charger",
     name: "Cargador P1 Sur",
     code: "AUR-P1-02",
     location: "Parking nivel 1",
@@ -52,6 +55,7 @@ export const towerChargers: ChargerSummary[] = [
   {
     id: "chg_003",
     propertyId: "prop_aurora",
+    kind: "ocpp_charger",
     name: "Cargador P2 Este",
     code: "AUR-P2-03",
     location: "Parking nivel 2",
@@ -65,6 +69,7 @@ export const towerChargers: ChargerSummary[] = [
   {
     id: "chg_004",
     propertyId: "prop_aurora",
+    kind: "ocpp_charger",
     name: "Cargador P2 Oeste",
     code: "AUR-P2-04",
     location: "Parking nivel 2",
@@ -78,6 +83,7 @@ export const towerChargers: ChargerSummary[] = [
   {
     id: "chg_005",
     propertyId: "prop_aurora",
+    kind: "ocpp_charger",
     name: "Cargador Visitantes",
     code: "AUR-VIS-05",
     location: "Bahía visitantes",
@@ -90,24 +96,56 @@ export const towerChargers: ChargerSummary[] = [
   }
 ];
 
+export const towerOutlets: ControlledOutletSummary[] = Array.from({ length: 16 }, (_, index) => {
+  const number = String(index + 1).padStart(2, "0");
+  const active = index === 0;
+  const faulted = index === 11;
+  const status = faulted ? "faulted" : active ? "charging" : "available";
+
+  return {
+    id: `outlet_${number}`,
+    propertyId: "prop_aurora",
+    kind: "controlled_outlet",
+    name: `Toma 120V ${number}`,
+    code: `AUR-TOMA-${number}`,
+    location: index < 8 ? "Área carritos norte" : "Área carritos sur",
+    status,
+    statusLabel: faulted ? "Falla" : active ? "Activa" : "Disponible",
+    connectors: 1,
+    maxPowerKw: 1.44,
+    ocppVersion: "1.6J",
+    lastSeenAt: `2026-05-05T0${Math.min(index + 1, 9)}:12:00-05:00`,
+    voltage: 120,
+    maxCurrentAmp: 12,
+    publicAccessCode: `aur-toma-${number}`,
+    controlMode: "simulated",
+    currentPowerKw: active ? (index === 0 ? 1.18 : 0.96) : 0,
+    currentSessionKwh: active ? (index === 0 ? 2.4 : 1.1) : 0,
+    ...(active ? { currentSessionId: "ses_001" } : {})
+  };
+});
+
+export const chargingPoints: ChargerSummary[] = [...towerOutlets, ...towerChargers];
+
 export const recentSessions: ChargingSessionSummary[] = [
   {
     id: "ses_001",
     propertyId: "prop_aurora",
-    chargerId: "chg_001",
+    chargerId: "outlet_01",
     connectorNumber: 1,
     residentName: "María López",
     apartmentNumber: "1204",
-    chargerCode: "AUR-P1-01",
-    chargerLocation: "Parking nivel 1",
-    deliveredKwh: 18.6,
-    durationMinutes: 96,
-    powerKw: 11.2,
-    costAmount: 102.3,
+    chargerCode: "AUR-TOMA-01",
+    chargerLocation: "Área carritos norte",
+    deliveredKwh: 2.4,
+    durationMinutes: 118,
+    powerKw: 1.18,
+    costAmount: 13.2,
     tariffName: "Residencial mayo",
     ratePerKwh: 5.5,
     status: "active",
     statusLabel: "Activa",
+    activationMethod: "mobile",
     startedAt: "2026-05-01T08:10:00-05:00",
     shortDate: "Hoy",
     dateLabel: "1 mayo, 08:10"
@@ -115,20 +153,21 @@ export const recentSessions: ChargingSessionSummary[] = [
   {
     id: "ses_002",
     propertyId: "prop_aurora",
-    chargerId: "chg_002",
-    connectorNumber: 2,
+    chargerId: "outlet_06",
+    connectorNumber: 1,
     residentName: "Carlos Méndez",
     apartmentNumber: "0802",
-    chargerCode: "AUR-P1-02",
-    chargerLocation: "Parking nivel 1",
-    deliveredKwh: 24.4,
+    chargerCode: "AUR-TOMA-06",
+    chargerLocation: "Área carritos norte",
+    deliveredKwh: 5.8,
     durationMinutes: 143,
-    powerKw: 7.8,
-    costAmount: 134.2,
+    powerKw: 1.12,
+    costAmount: 31.9,
     tariffName: "Residencial mayo",
     ratePerKwh: 5.5,
     status: "completed",
     statusLabel: "Completada",
+    activationMethod: "rfid",
     startedAt: "2026-04-30T21:24:00-05:00",
     endedAt: "2026-04-30T23:47:00-05:00",
     shortDate: "Ayer",
@@ -137,20 +176,21 @@ export const recentSessions: ChargingSessionSummary[] = [
   {
     id: "ses_003",
     propertyId: "prop_aurora",
-    chargerId: "chg_003",
+    chargerId: "outlet_10",
     connectorNumber: 1,
     residentName: "Ana Rivera",
     apartmentNumber: "1501",
-    chargerCode: "AUR-P2-03",
-    chargerLocation: "Parking nivel 2",
-    deliveredKwh: 9.8,
+    chargerCode: "AUR-TOMA-10",
+    chargerLocation: "Área carritos sur",
+    deliveredKwh: 1.3,
     durationMinutes: 58,
-    powerKw: 6.1,
-    costAmount: 53.9,
+    powerKw: 0.9,
+    costAmount: 7.15,
     tariffName: "Residencial mayo",
     ratePerKwh: 5.5,
     status: "completed",
     statusLabel: "Completada",
+    activationMethod: "mobile",
     startedAt: "2026-04-30T18:05:00-05:00",
     endedAt: "2026-04-30T19:03:00-05:00",
     shortDate: "30 Abr",
@@ -159,20 +199,21 @@ export const recentSessions: ChargingSessionSummary[] = [
   {
     id: "ses_004",
     propertyId: "prop_aurora",
-    chargerId: "chg_004",
+    chargerId: "outlet_12",
     connectorNumber: 1,
     residentName: "Diego Santos",
     apartmentNumber: "0306",
-    chargerCode: "AUR-P2-04",
-    chargerLocation: "Parking nivel 2",
-    deliveredKwh: 6.2,
+    chargerCode: "AUR-TOMA-12",
+    chargerLocation: "Área carritos sur",
+    deliveredKwh: 0.4,
     durationMinutes: 41,
-    powerKw: 5.4,
-    costAmount: 34.1,
+    powerKw: 0.4,
+    costAmount: 2.2,
     tariffName: "Residencial mayo",
     ratePerKwh: 5.5,
     status: "failed",
     statusLabel: "Fallida",
+    activationMethod: "admin",
     startedAt: "2026-04-29T07:45:00-05:00",
     endedAt: "2026-04-29T08:26:00-05:00",
     shortDate: "29 Abr",
@@ -393,15 +434,15 @@ export const tariffs: TariffSummary[] = [
 ];
 
 export const dashboardStats = {
-  monthlyKwh: 1482.6,
-  monthlyRevenue: 8154.3,
-  activeSessions: 4,
-  availableConnectors: 5,
+  monthlyKwh: 42.8,
+  monthlyRevenue: 235.4,
+  activeSessions: 1,
+  availableConnectors: 14,
   billingReady: 19,
   openAlerts: 3,
-  currentPowerKw: 38.4,
-  averageSessionMinutes: 84,
-  activeResidents: 42
+  currentPowerKw: 1.18,
+  averageSessionMinutes: 92,
+  activeResidents: 4
 };
 
 export const ocppLogs: OcppLogSummary[] = [
