@@ -53,7 +53,7 @@ pnpm db:studio
 
 El schema vive en `packages/db/src/schema.ts` e incluye `property_id` para multi-torre, mensajes OCPP crudos para auditoría y tablas separadas para residentes, cargadores, sesiones, mediciones, tarifas y facturación.
 
-El seed es idempotente para desarrollo: recrea solo la propiedad `torre-aurora` y sus datos asociados. No imprime ni registra el valor de `DATABASE_URL`.
+El seed es idempotente para desarrollo: actualiza la propiedad `torre-aurora`, asegura lectores RFID demo, reglas operativas y overrides sin borrar sesiones existentes. No imprime ni registra el valor de `DATABASE_URL`.
 
 ## Desarrollo
 
@@ -166,6 +166,41 @@ Prueba 4 - enrollment:
 5. Verifica que el enrollment cambie a `captured` y que aparezca una credencial activa.
 
 RFID usa `RFID_HASH_SECRET` para HMAC-SHA256. En desarrollo puede usar fallback local si no está configurado, pero producción debe definirlo. La UI nunca muestra el idTag completo ni el hash.
+
+## Operational Rules
+
+El motor de reglas vive en `packages/db/src/rules-engine.ts`. Antes de crear una sesión o un `device_command`, `evaluateStartSession` valida propiedad, toma, residente, departamento, método de activación, horario, límites simultáneos, tarifa activa y comandos pendientes. Cada decisión queda auditada en `rule_evaluations`.
+
+Capas de configuración:
+
+- `property_access_rules`: regla activa por propiedad, métodos permitidos, límites de sesión, timeouts, umbral de baja potencia y acción por sobrecorriente.
+- `access_schedule_windows`: ventanas por día de la semana. El seed deja 24/7 con `00:00-23:59`.
+- `outlet_access_overrides`: estado operativo y límites específicos por toma.
+- `resident_access_overrides`: bloqueo, suspensión o limitación por residente.
+- `apartment_access_overrides`: límites y bloqueos por departamento.
+
+UI:
+
+- `/settings/rules`: editar regla activa, métodos permitidos, límites y horario diario.
+- `/outlets`: poner tomas en mantenimiento, deshabilitar o habilitar mediante override.
+- `/residents/[residentId]`: bloquear, desbloquear o limitar acceso de un residente sin tocar sus credenciales RFID.
+
+Seed operativo:
+
+- Crea `Regla residencial estándar`.
+- Permite RFID, móvil y admin.
+- Limita a 1 sesión activa por residente, 2 por departamento y 16 por propiedad.
+- Define duración máxima de 480 minutos.
+- Define startup no-load de 90 s, no-load sostenido de 600 s, umbral de 20 W y sobrecorriente con `stop_session`.
+- Deja `AUR-TOMA-16` en mantenimiento para validar denegaciones.
+
+Pruebas manuales:
+
+1. Toma en mantenimiento: abre `/mobile/outlets/aur-toma-16` e intenta iniciar. Debe negar. En `/rfid-simulator`, selecciona `AUR-TOMA-16`; el tap RFID también debe negar.
+2. Límite por residente: inicia una sesión para el residente demo e intenta iniciar otra. Debe responder que ya existe una sesión activa.
+3. Método deshabilitado: en `/settings/rules`, desactiva `Móvil`, guarda e intenta iniciar desde PWA. RFID debe seguir permitido si continúa activo.
+4. Horario: cambia la ventana a un horario fuera del actual y valida que mobile/RFID respondan `outside_schedule`.
+5. No-load y sobrecorriente: deja correr `pnpm outlet:simulator`; el runtime usa los timeouts, umbral y acción configurados en la regla activa.
 
 ## Auth
 

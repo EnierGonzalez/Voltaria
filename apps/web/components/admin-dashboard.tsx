@@ -164,6 +164,39 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
           icon={<UsersRound className="h-5 w-5" aria-hidden="true" />}
         />
       </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard
+          title="Rechazos hoy"
+          value={data.dashboardStats.rejectedSessionsToday.toString()}
+          delta="Decisiones denied del motor"
+          tone="warning"
+        />
+        <StatCard
+          title="RFID rechazados"
+          value={data.dashboardStats.rejectedRfidAttemptsToday.toString()}
+          delta="Intentos RFID hoy"
+          tone="warning"
+        />
+        <StatCard
+          title="Mantenimiento"
+          value={data.dashboardStats.maintenanceOutlets.toString()}
+          delta="Tomas con override"
+          tone="cyan"
+        />
+        <StatCard
+          title="Detenidas por regla"
+          value={data.dashboardStats.ruleStoppedSessions.toString()}
+          delta="Duración, kWh o no-load"
+          tone="primary"
+        />
+        <StatCard
+          title="Alertas operativas"
+          value={data.dashboardStats.operationalAlerts.toString()}
+          delta="Sobrecorriente/no-load"
+          tone="warning"
+        />
+      </section>
     </section>
   );
 }

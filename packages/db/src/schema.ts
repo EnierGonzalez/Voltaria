@@ -128,6 +128,30 @@ export const authorizationAttemptResultEnum = pgEnum("authorization_attempt_resu
   "blocked"
 ]);
 
+export const overcurrentActionEnum = pgEnum("overcurrent_action", [
+  "alert_only",
+  "stop_session"
+]);
+
+export const outletAccessStatusEnum = pgEnum("outlet_access_status", [
+  "available",
+  "maintenance",
+  "disabled",
+  "reserved"
+]);
+
+export const accessOverrideStatusEnum = pgEnum("access_override_status", [
+  "allowed",
+  "blocked",
+  "suspended",
+  "limited"
+]);
+
+export const ruleEvaluationResultEnum = pgEnum("rule_evaluation_result", [
+  "allowed",
+  "denied"
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
@@ -490,6 +514,188 @@ export const authorizationAttempts = pgTable(
   })
 );
 
+export const propertyAccessRules = pgTable(
+  "property_access_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    active: boolean("active").default(true).notNull(),
+    allowRfid: boolean("allow_rfid").default(true).notNull(),
+    allowMobile: boolean("allow_mobile").default(true).notNull(),
+    allowAdmin: boolean("allow_admin").default(true).notNull(),
+    maxActiveSessionsPerResident: integer("max_active_sessions_per_resident").default(1).notNull(),
+    maxActiveSessionsPerApartment: integer("max_active_sessions_per_apartment").default(2).notNull(),
+    maxActiveSessionsProperty: integer("max_active_sessions_property"),
+    maxSessionDurationMinutes: integer("max_session_duration_minutes"),
+    maxSessionKwh: numeric("max_session_kwh", { precision: 12, scale: 3 }),
+    maxSessionCost: numeric("max_session_cost", { precision: 12, scale: 2 }),
+    startupNoLoadTimeoutSeconds: integer("startup_no_load_timeout_seconds").default(90).notNull(),
+    noLoadTimeoutSeconds: integer("no_load_timeout_seconds").default(600).notNull(),
+    lowPowerThresholdWatts: numeric("low_power_threshold_watts", { precision: 10, scale: 2 })
+      .default("20")
+      .notNull(),
+    overcurrentAction: overcurrentActionEnum("overcurrent_action")
+      .default("stop_session")
+      .notNull(),
+    defaultMaxCurrentAmp: numeric("default_max_current_amp", { precision: 8, scale: 2 }),
+    ...timestamps
+  },
+  (table) => ({
+    propertyActiveIdx: index("property_access_rules_property_active_idx").on(
+      table.propertyId,
+      table.active
+    )
+  })
+);
+
+export const accessScheduleWindows = pgTable(
+  "access_schedule_windows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    ruleId: uuid("rule_id").references(() => propertyAccessRules.id, { onDelete: "cascade" }),
+    dayOfWeek: integer("day_of_week").notNull(),
+    startTime: varchar("start_time", { length: 5 }).notNull(),
+    endTime: varchar("end_time", { length: 5 }).notNull(),
+    active: boolean("active").default(true).notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    propertyDayIdx: index("access_schedule_windows_property_day_idx").on(
+      table.propertyId,
+      table.dayOfWeek
+    ),
+    ruleIdx: index("access_schedule_windows_rule_idx").on(table.ruleId)
+  })
+);
+
+export const outletAccessOverrides = pgTable(
+  "outlet_access_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    outletId: uuid("outlet_id")
+      .references(() => chargers.id, { onDelete: "cascade" })
+      .notNull(),
+    status: outletAccessStatusEnum("status").default("available").notNull(),
+    allowRfid: boolean("allow_rfid"),
+    allowMobile: boolean("allow_mobile"),
+    maxCurrentAmp: numeric("max_current_amp", { precision: 8, scale: 2 }),
+    maxSessionDurationMinutes: integer("max_session_duration_minutes"),
+    notes: text("notes"),
+    ...timestamps
+  },
+  (table) => ({
+    propertyOutletIdx: uniqueIndex("outlet_access_overrides_property_outlet_idx").on(
+      table.propertyId,
+      table.outletId
+    ),
+    propertyStatusIdx: index("outlet_access_overrides_property_status_idx").on(
+      table.propertyId,
+      table.status
+    )
+  })
+);
+
+export const residentAccessOverrides = pgTable(
+  "resident_access_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id")
+      .references(() => residents.id, { onDelete: "cascade" })
+      .notNull(),
+    status: accessOverrideStatusEnum("status").default("allowed").notNull(),
+    allowRfid: boolean("allow_rfid"),
+    allowMobile: boolean("allow_mobile"),
+    maxSessionDurationMinutes: integer("max_session_duration_minutes"),
+    maxSessionKwh: numeric("max_session_kwh", { precision: 12, scale: 3 }),
+    maxSessionsPerDay: integer("max_sessions_per_day"),
+    notes: text("notes"),
+    ...timestamps
+  },
+  (table) => ({
+    propertyResidentIdx: uniqueIndex("resident_access_overrides_property_resident_idx").on(
+      table.propertyId,
+      table.residentId
+    ),
+    propertyStatusIdx: index("resident_access_overrides_property_status_idx").on(
+      table.propertyId,
+      table.status
+    )
+  })
+);
+
+export const apartmentAccessOverrides = pgTable(
+  "apartment_access_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    apartmentId: uuid("apartment_id")
+      .references(() => apartments.id, { onDelete: "cascade" })
+      .notNull(),
+    status: accessOverrideStatusEnum("status").default("allowed").notNull(),
+    maxActiveSessions: integer("max_active_sessions"),
+    maxMonthlyKwh: numeric("max_monthly_kwh", { precision: 12, scale: 3 }),
+    notes: text("notes"),
+    ...timestamps
+  },
+  (table) => ({
+    propertyApartmentIdx: uniqueIndex("apartment_access_overrides_property_apartment_idx").on(
+      table.propertyId,
+      table.apartmentId
+    ),
+    propertyStatusIdx: index("apartment_access_overrides_property_status_idx").on(
+      table.propertyId,
+      table.status
+    )
+  })
+);
+
+export const ruleEvaluations = pgTable(
+  "rule_evaluations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    apartmentId: uuid("apartment_id").references(() => apartments.id, { onDelete: "set null" }),
+    outletId: uuid("outlet_id").references(() => chargers.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id").references(() => chargingSessions.id, { onDelete: "set null" }),
+    method: activationMethodEnum("method").notNull(),
+    result: ruleEvaluationResultEnum("result").notNull(),
+    reason: varchar("reason", { length: 160 }).notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    propertyCreatedIdx: index("rule_evaluations_property_created_idx").on(
+      table.propertyId,
+      table.createdAt
+    ),
+    propertyResultIdx: index("rule_evaluations_property_result_idx").on(
+      table.propertyId,
+      table.result
+    ),
+    residentCreatedIdx: index("rule_evaluations_resident_created_idx").on(
+      table.residentId,
+      table.createdAt
+    )
+  })
+);
+
 export const meterValues = pgTable(
   "meter_values",
   {
@@ -660,7 +866,13 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   accessDevices: many(accessDevices),
   credentialEnrollments: many(credentialEnrollmentSessions),
   credentialEvents: many(credentialEvents),
-  authorizationAttempts: many(authorizationAttempts)
+  authorizationAttempts: many(authorizationAttempts),
+  propertyAccessRules: many(propertyAccessRules),
+  accessScheduleWindows: many(accessScheduleWindows),
+  outletAccessOverrides: many(outletAccessOverrides),
+  residentAccessOverrides: many(residentAccessOverrides),
+  apartmentAccessOverrides: many(apartmentAccessOverrides),
+  ruleEvaluations: many(ruleEvaluations)
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -670,7 +882,9 @@ export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
   }),
   residents: many(residents),
   sessions: many(chargingSessions),
-  billingRecords: many(billingRecords)
+  billingRecords: many(billingRecords),
+  accessOverride: many(apartmentAccessOverrides),
+  ruleEvaluations: many(ruleEvaluations)
 }));
 
 export const residentsRelations = relations(residents, ({ one, many }) => ({
@@ -686,6 +900,8 @@ export const residentsRelations = relations(residents, ({ one, many }) => ({
   credentialEnrollments: many(credentialEnrollmentSessions),
   credentialEvents: many(credentialEvents),
   authorizationAttempts: many(authorizationAttempts),
+  accessOverride: many(residentAccessOverrides),
+  ruleEvaluations: many(ruleEvaluations),
   sessions: many(chargingSessions),
   billingRecords: many(billingRecords)
 }));
@@ -723,7 +939,9 @@ export const chargersRelations = relations(chargers, ({ one, many }) => ({
   deviceCommands: many(deviceCommands),
   accessDevices: many(accessDevices),
   credentialEnrollments: many(credentialEnrollmentSessions),
-  authorizationAttempts: many(authorizationAttempts)
+  authorizationAttempts: many(authorizationAttempts),
+  outletAccessOverrides: many(outletAccessOverrides),
+  ruleEvaluations: many(ruleEvaluations)
 }));
 
 export const chargerConnectorsRelations = relations(chargerConnectors, ({ one, many }) => ({
@@ -763,7 +981,8 @@ export const chargingSessionsRelations = relations(chargingSessions, ({ one, man
   meterValues: many(meterValues),
   alerts: many(alerts),
   billingRecords: many(billingRecords),
-  deviceCommands: many(deviceCommands)
+  deviceCommands: many(deviceCommands),
+  ruleEvaluations: many(ruleEvaluations)
 }));
 
 export const meterValuesRelations = relations(meterValues, ({ one }) => ({
@@ -954,6 +1173,81 @@ export const authorizationAttemptsRelations = relations(authorizationAttempts, (
   })
 }));
 
+export const propertyAccessRulesRelations = relations(propertyAccessRules, ({ one, many }) => ({
+  property: one(properties, {
+    fields: [propertyAccessRules.propertyId],
+    references: [properties.id]
+  }),
+  scheduleWindows: many(accessScheduleWindows)
+}));
+
+export const accessScheduleWindowsRelations = relations(accessScheduleWindows, ({ one }) => ({
+  property: one(properties, {
+    fields: [accessScheduleWindows.propertyId],
+    references: [properties.id]
+  }),
+  rule: one(propertyAccessRules, {
+    fields: [accessScheduleWindows.ruleId],
+    references: [propertyAccessRules.id]
+  })
+}));
+
+export const outletAccessOverridesRelations = relations(outletAccessOverrides, ({ one }) => ({
+  property: one(properties, {
+    fields: [outletAccessOverrides.propertyId],
+    references: [properties.id]
+  }),
+  outlet: one(chargers, {
+    fields: [outletAccessOverrides.outletId],
+    references: [chargers.id]
+  })
+}));
+
+export const residentAccessOverridesRelations = relations(residentAccessOverrides, ({ one }) => ({
+  property: one(properties, {
+    fields: [residentAccessOverrides.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [residentAccessOverrides.residentId],
+    references: [residents.id]
+  })
+}));
+
+export const apartmentAccessOverridesRelations = relations(apartmentAccessOverrides, ({ one }) => ({
+  property: one(properties, {
+    fields: [apartmentAccessOverrides.propertyId],
+    references: [properties.id]
+  }),
+  apartment: one(apartments, {
+    fields: [apartmentAccessOverrides.apartmentId],
+    references: [apartments.id]
+  })
+}));
+
+export const ruleEvaluationsRelations = relations(ruleEvaluations, ({ one }) => ({
+  property: one(properties, {
+    fields: [ruleEvaluations.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [ruleEvaluations.residentId],
+    references: [residents.id]
+  }),
+  apartment: one(apartments, {
+    fields: [ruleEvaluations.apartmentId],
+    references: [apartments.id]
+  }),
+  outlet: one(chargers, {
+    fields: [ruleEvaluations.outletId],
+    references: [chargers.id]
+  }),
+  session: one(chargingSessions, {
+    fields: [ruleEvaluations.sessionId],
+    references: [chargingSessions.id]
+  })
+}));
+
 export type Property = typeof properties.$inferSelect;
 export type NewProperty = typeof properties.$inferInsert;
 export type ChargingSession = typeof chargingSessions.$inferSelect;
@@ -972,5 +1266,17 @@ export type CredentialEvent = typeof credentialEvents.$inferSelect;
 export type NewCredentialEvent = typeof credentialEvents.$inferInsert;
 export type AuthorizationAttempt = typeof authorizationAttempts.$inferSelect;
 export type NewAuthorizationAttempt = typeof authorizationAttempts.$inferInsert;
+export type PropertyAccessRule = typeof propertyAccessRules.$inferSelect;
+export type NewPropertyAccessRule = typeof propertyAccessRules.$inferInsert;
+export type AccessScheduleWindow = typeof accessScheduleWindows.$inferSelect;
+export type NewAccessScheduleWindow = typeof accessScheduleWindows.$inferInsert;
+export type OutletAccessOverride = typeof outletAccessOverrides.$inferSelect;
+export type NewOutletAccessOverride = typeof outletAccessOverrides.$inferInsert;
+export type ResidentAccessOverride = typeof residentAccessOverrides.$inferSelect;
+export type NewResidentAccessOverride = typeof residentAccessOverrides.$inferInsert;
+export type ApartmentAccessOverride = typeof apartmentAccessOverrides.$inferSelect;
+export type NewApartmentAccessOverride = typeof apartmentAccessOverrides.$inferInsert;
+export type RuleEvaluation = typeof ruleEvaluations.$inferSelect;
+export type NewRuleEvaluation = typeof ruleEvaluations.$inferInsert;
 
 export const healthcheckSql = sql`select 1`;

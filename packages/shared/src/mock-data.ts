@@ -442,7 +442,12 @@ export const dashboardStats = {
   openAlerts: 3,
   currentPowerKw: 1.18,
   averageSessionMinutes: 92,
-  activeResidents: 4
+  activeResidents: 4,
+  rejectedSessionsToday: 0,
+  rejectedRfidAttemptsToday: 0,
+  maintenanceOutlets: 1,
+  ruleStoppedSessions: 0,
+  operationalAlerts: 0
 };
 
 export const ocppLogs: OcppLogSummary[] = [

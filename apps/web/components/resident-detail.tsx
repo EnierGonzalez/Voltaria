@@ -12,6 +12,7 @@ import {
   type AccessDeviceSummary,
   type ChargingSessionSummary,
   type CredentialEventSummary,
+  type ResidentAccessRuleSummary,
   type ResidentSummary,
   type RfidCredentialSummary
 } from "@voltaria/shared";
@@ -26,6 +27,7 @@ import {
   replaceCredentialStartAction,
   startCredentialEnrollmentAction
 } from "@/lib/actions/credential-actions";
+import { setResidentAccessOverrideAction } from "@/lib/actions/rules-actions";
 import { EmptyState } from "./empty-state";
 
 type ResidentDetailProps = {
@@ -34,6 +36,7 @@ type ResidentDetailProps = {
   credentials: RfidCredentialSummary[];
   credentialEvents: CredentialEventSummary[];
   accessDevices: AccessDeviceSummary[];
+  accessRule: ResidentAccessRuleSummary | null;
 };
 
 export function ResidentDetail({
@@ -41,7 +44,8 @@ export function ResidentDetail({
   sessions,
   credentials,
   credentialEvents,
-  accessDevices
+  accessDevices,
+  accessRule
 }: ResidentDetailProps) {
   const [manualTag, setManualTag] = useState("");
   const [manualLabel, setManualLabel] = useState("Tarjeta principal");
@@ -50,6 +54,10 @@ export function ResidentDetail({
   const [enrollmentStatus, setEnrollmentStatus] = useState<string | null>(null);
   const [capturedMaskedValue, setCapturedMaskedValue] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [ruleStatus, setRuleStatus] = useState(accessRule?.status ?? "allowed");
+  const [allowRfid, setAllowRfid] = useState(accessRule?.allowRfid ?? true);
+  const [allowMobile, setAllowMobile] = useState(accessRule?.allowMobile ?? true);
+  const [ruleNotes, setRuleNotes] = useState(accessRule?.notes ?? "");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -105,6 +113,129 @@ export function ResidentDetail({
         <StatCard title="Consumo mensual" value={formatKwh(resident.monthlyKwh)} delta={formatCurrency(resident.monthlyCost)} tone="success" />
         <StatCard title="RFID" value={activeCredential ? activeCredential.maskedValue : "Sin tarjeta"} delta={activeCredential ? activeCredential.statusLabel : "Asignación pendiente"} tone={activeCredential ? "success" : "warning"} />
       </section>
+
+      <SectionCard
+        title="Reglas de acceso"
+        description="Overrides operativos para este residente"
+        action={<StatusBadge variant={ruleStatus === "allowed" ? "success" : ruleStatus === "limited" ? "warning" : "critical"}>{accessRule?.statusLabel ?? "Permitido"}</StatusBadge>}
+      >
+        <div className="grid gap-4 xl:grid-cols-[220px_1fr_auto]">
+          <label className="grid gap-2 text-sm text-muted">
+            Estado
+            <select
+              value={ruleStatus}
+              onChange={(event) => setRuleStatus(event.target.value as ResidentAccessRuleSummary["status"])}
+              className="min-h-10 rounded-md border border-border bg-panel px-3 text-sm text-foreground outline-none transition focus:border-cyan"
+            >
+              <option value="allowed">Permitido</option>
+              <option value="blocked">Bloqueado</option>
+              <option value="suspended">Suspendido</option>
+              <option value="limited">Limitado</option>
+            </select>
+          </label>
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="flex min-h-10 items-center justify-between gap-3 rounded-md border border-border bg-panel2/64 px-3 text-sm text-foreground">
+              RFID
+              <input
+                type="checkbox"
+                checked={allowRfid}
+                onChange={(event) => setAllowRfid(event.target.checked)}
+                className="h-4 w-4 accent-cyan"
+              />
+            </label>
+            <label className="flex min-h-10 items-center justify-between gap-3 rounded-md border border-border bg-panel2/64 px-3 text-sm text-foreground">
+              Móvil
+              <input
+                type="checkbox"
+                checked={allowMobile}
+                onChange={(event) => setAllowMobile(event.target.checked)}
+                className="h-4 w-4 accent-cyan"
+              />
+            </label>
+            <input
+              value={ruleNotes}
+              onChange={(event) => setRuleNotes(event.target.value)}
+              placeholder="Notas operativas"
+              className="min-h-10 rounded-md border border-border bg-panel px-3 text-sm text-foreground outline-none transition focus:border-cyan"
+            />
+          </div>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() =>
+              runAction(() =>
+                setResidentAccessOverrideAction({
+                  residentId: resident.id,
+                  status: ruleStatus,
+                  allowRfid,
+                  allowMobile,
+                  notes: ruleNotes
+                })
+              )
+            }
+            className="min-h-10 rounded-md border border-cyan/40 bg-cyan/12 px-4 text-sm font-semibold text-cyan transition hover:bg-cyan/20 disabled:opacity-60"
+          >
+            Guardar reglas
+          </button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() =>
+              runAction(() =>
+                setResidentAccessOverrideAction({
+                  residentId: resident.id,
+                  status: "blocked",
+                  allowRfid: false,
+                  allowMobile: false,
+                  notes: "Bloqueado desde operación"
+                })
+              )
+            }
+            className="rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-xs font-semibold text-danger transition hover:bg-danger/20 disabled:opacity-50"
+          >
+            Bloquear carga
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() =>
+              runAction(() =>
+                setResidentAccessOverrideAction({
+                  residentId: resident.id,
+                  status: "allowed",
+                  allowRfid: true,
+                  allowMobile: true,
+                  notes: "Acceso restaurado"
+                })
+              )
+            }
+            className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs font-semibold text-success transition hover:bg-success/20 disabled:opacity-50"
+          >
+            Desbloquear
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() =>
+              runAction(() =>
+                setResidentAccessOverrideAction({
+                  residentId: resident.id,
+                  status: "limited",
+                  allowRfid,
+                  allowMobile,
+                  maxSessionDurationMinutes: 120,
+                  notes: "Limitado a 120 minutos"
+                })
+              )
+            }
+            className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning transition hover:bg-warning/20 disabled:opacity-50"
+          >
+            Limitar
+          </button>
+        </div>
+      </SectionCard>
 
       <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <SectionCard

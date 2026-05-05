@@ -25,7 +25,8 @@ async function tick() {
       result.meterValues > 0 ||
       result.timedOutSessions > 0 ||
       result.noLoadSessions > 0 ||
-      result.overCurrentSessions > 0
+      result.overCurrentSessions > 0 ||
+      result.ruleStoppedSessions > 0
     ) {
       console.log(
         [
@@ -33,7 +34,8 @@ async function tick() {
           `meter_values=${result.meterValues}`,
           `timeouts=${result.timedOutSessions}`,
           `no_load=${result.noLoadSessions}`,
-          `over_current=${result.overCurrentSessions}`
+          `over_current=${result.overCurrentSessions}`,
+          `rule_stops=${result.ruleStoppedSessions}`
         ].join(" ")
       );
     }

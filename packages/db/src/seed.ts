@@ -16,6 +16,7 @@ import { loadDatabaseEnv } from "./load-env";
 import { hashRfidTag, maskRfidTag } from "./rfid-utils";
 import {
   accessDevices,
+  accessScheduleWindows,
   alerts,
   apartments,
   billingRecords,
@@ -25,7 +26,9 @@ import {
   deviceCommands,
   meterValues,
   ocppMessages,
+  outletAccessOverrides,
   properties,
+  propertyAccessRules,
   residentCredentials,
   residents,
   systemEvents,
@@ -73,6 +76,7 @@ async function seed() {
     }
 
     await ensureRfidSeed(property.id);
+    await ensureOperationalRulesSeed(property.id);
     return;
   }
 
@@ -460,6 +464,8 @@ async function seed() {
         ];
       })
   );
+
+  await ensureOperationalRulesSeed(property.id);
 }
 
 async function ensureRfidSeed(propertyId: string) {
@@ -503,6 +509,134 @@ async function ensureRfidSeed(propertyId: string) {
 
   await ensureDemoRfidCredential(propertyId, "María López", "RFID-DEMO-1204", "Tarjeta principal");
   await ensureDemoRfidCredential(propertyId, "Carlos Méndez", "RFID-DEMO-0802", "Tarjeta secundaria");
+}
+
+async function ensureOperationalRulesSeed(propertyId: string) {
+  const [existingRule] = await db
+    .select()
+    .from(propertyAccessRules)
+    .where(and(eq(propertyAccessRules.propertyId, propertyId), eq(propertyAccessRules.name, "Regla residencial estándar")))
+    .limit(1);
+
+  const values = {
+    propertyId,
+    name: "Regla residencial estándar",
+    active: true,
+    allowRfid: true,
+    allowMobile: true,
+    allowAdmin: true,
+    maxActiveSessionsPerResident: 1,
+    maxActiveSessionsPerApartment: 2,
+    maxActiveSessionsProperty: 16,
+    maxSessionDurationMinutes: 480,
+    maxSessionKwh: null,
+    maxSessionCost: null,
+    startupNoLoadTimeoutSeconds: 90,
+    noLoadTimeoutSeconds: 600,
+    lowPowerThresholdWatts: "20.00",
+    overcurrentAction: "stop_session" as const,
+    defaultMaxCurrentAmp: "12.00",
+    updatedAt: new Date()
+  };
+  const [rule] = existingRule
+    ? await db
+        .update(propertyAccessRules)
+        .set(values)
+        .where(eq(propertyAccessRules.id, existingRule.id))
+        .returning()
+    : await db.insert(propertyAccessRules).values(values).returning();
+
+  if (!rule) {
+    return;
+  }
+
+  await ensureDailyScheduleWindows(propertyId, rule.id, "00:00", "23:59");
+
+  const [outlet16] = await db
+    .select()
+    .from(chargers)
+    .where(and(eq(chargers.propertyId, propertyId), eq(chargers.ocppIdentity, "AUR-TOMA-16")))
+    .limit(1);
+
+  if (!outlet16) {
+    return;
+  }
+
+  const [existingOverride] = await db
+    .select()
+    .from(outletAccessOverrides)
+    .where(
+      and(
+        eq(outletAccessOverrides.propertyId, propertyId),
+        eq(outletAccessOverrides.outletId, outlet16.id)
+      )
+    )
+    .limit(1);
+
+  const overrideValues = {
+    propertyId,
+    outletId: outlet16.id,
+    status: "maintenance" as const,
+    allowRfid: true,
+    allowMobile: true,
+    maxCurrentAmp: "12.00",
+    maxSessionDurationMinutes: 480,
+    notes: "Demo: toma en mantenimiento para validar denegación.",
+    updatedAt: new Date()
+  };
+
+  if (existingOverride) {
+    await db
+      .update(outletAccessOverrides)
+      .set(overrideValues)
+      .where(eq(outletAccessOverrides.id, existingOverride.id));
+  } else {
+    await db.insert(outletAccessOverrides).values(overrideValues);
+  }
+}
+
+async function ensureDailyScheduleWindows(
+  propertyId: string,
+  ruleId: string,
+  startTime: string,
+  endTime: string
+) {
+  const existingWindows = await db
+    .select()
+    .from(accessScheduleWindows)
+    .where(and(eq(accessScheduleWindows.propertyId, propertyId), eq(accessScheduleWindows.ruleId, ruleId)));
+  const usedIds = new Set<string>();
+
+  for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {
+    const existing = existingWindows.find((window) => window.dayOfWeek === dayOfWeek && !usedIds.has(window.id));
+
+    if (existing) {
+      usedIds.add(existing.id);
+      await db
+        .update(accessScheduleWindows)
+        .set({ startTime, endTime, active: true, updatedAt: new Date() })
+        .where(eq(accessScheduleWindows.id, existing.id));
+      continue;
+    }
+
+    const [created] = await db
+      .insert(accessScheduleWindows)
+      .values({ propertyId, ruleId, dayOfWeek, startTime, endTime, active: true })
+      .returning({ id: accessScheduleWindows.id });
+
+    if (created) {
+      usedIds.add(created.id);
+    }
+  }
+
+  for (const window of existingWindows) {
+    if (!usedIds.has(window.id)) {
+      await db
+        .update(accessScheduleWindows)
+        .set({ active: false, updatedAt: new Date() })
+        .where(eq(accessScheduleWindows.id, window.id));
+    }
+  }
 }
 
 async function ensureDemoRfidCredential(

@@ -7,6 +7,7 @@ import {
   recordCredentialEvent
 } from "./credential-service";
 import { hashRfidTag, maskRfidTag, normalizeRfidTag, validateRfidTag } from "./rfid-utils";
+import { evaluateStartSession } from "./rules-engine";
 import {
   accessDevices,
   apartments,
@@ -203,10 +204,12 @@ export async function handleRfidTap(
     });
   }
 
+  const explicitOutletId = input.outletId;
+  const linkedOutletId = input.outletPublicCode ? undefined : accessDevice.linkedOutletId;
   const outlet = await resolveOutlet(db, {
     propertyId: accessDevice.propertyId,
-    ...((input.outletId ?? accessDevice.linkedOutletId)
-      ? { outletId: input.outletId ?? accessDevice.linkedOutletId ?? undefined }
+    ...((explicitOutletId ?? linkedOutletId)
+      ? { outletId: explicitOutletId ?? linkedOutletId ?? undefined }
       : {}),
     ...(input.outletPublicCode ? { outletPublicCode: input.outletPublicCode } : {})
   });
@@ -253,6 +256,53 @@ export async function handleRfidTap(
     });
   }
 
+  const ruleDecision = await evaluateStartSession(db, {
+    propertyId: accessDevice.propertyId,
+    residentId: resident.id,
+    apartmentId: resident.apartmentId,
+    outletId: outlet.id,
+    method: "rfid",
+    source: "rfid"
+  });
+
+  if (!ruleDecision.allowed) {
+    await recordAuthorizationAttempt(db, {
+      propertyId: accessDevice.propertyId,
+      residentId: resident.id,
+      credentialId: credential.id,
+      accessDeviceId: accessDevice.id,
+      chargerId: outlet.id,
+      method: "rfid",
+      result: ruleDecision.reason === "resident_blocked" || ruleDecision.reason === "apartment_blocked"
+        ? "blocked"
+        : "rejected",
+      reason: ruleDecision.reason,
+      maskedValue,
+      metadata: { source: input.source, ruleDetails: ruleDecision.details }
+    });
+
+    await recordCredentialEvent(db, {
+      propertyId: accessDevice.propertyId,
+      residentId: resident.id,
+      credentialId: credential.id,
+      action: "credential.authorization_rejected",
+      reason: ruleDecision.reason,
+      performedBy: input.source,
+      metadata: { maskedValue }
+    });
+
+    return {
+      result: ruleDecision.reason === "resident_blocked" || ruleDecision.reason === "apartment_blocked"
+        ? "blocked"
+        : "rejected",
+      reason: ruleDecision.reason,
+      maskedValue,
+      residentId: resident.id,
+      credentialId: credential.id,
+      message: ruleDecision.message
+    };
+  }
+
   if (outlet.status !== "available") {
     return recordRejected(db, {
       propertyId: accessDevice.propertyId,
@@ -278,7 +328,7 @@ export async function handleRfidTap(
     outletCode: outlet.ocppIdentity,
     ...(outlet.publicAccessCode ? { publicAccessCode: outlet.publicAccessCode } : {}),
     voltage: outlet.voltage ?? 120,
-    maxCurrentAmp: toNumber(outlet.maxCurrentAmp) || 12,
+    maxCurrentAmp: toNumber(ruleDecision.details.effectiveMaxCurrentAmp) || toNumber(outlet.maxCurrentAmp) || 12,
     maskedValue,
     source: input.source
   });

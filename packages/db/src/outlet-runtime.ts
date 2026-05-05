@@ -1,5 +1,11 @@
-import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
 import type { VoltariaDb } from "./client";
+import {
+  evaluateOutletAvailability,
+  evaluateStartSession,
+  getRuntimeRuleSettings,
+  recordRuleEvaluation
+} from "./rules-engine";
 import {
   alerts,
   apartments,
@@ -18,9 +24,6 @@ type DbExecutor = Pick<VoltariaDb, "insert" | "select" | "update">;
 
 const DEMO_RESIDENT_EMAIL = "maria.lopez@example.com";
 const ACTIVE_SESSION_STATUSES = ["pending_start", "active"] as const;
-const NO_LOAD_POWER_W = 20;
-const PENDING_START_TIMEOUT_MS = 90_000;
-const NO_LOAD_TIMEOUT_MS = 10 * 60_000;
 
 export type RuntimeResult =
   | {
@@ -50,6 +53,7 @@ export type OutletSimulatorTickResult = {
   timedOutSessions: number;
   noLoadSessions: number;
   overCurrentSessions: number;
+  ruleStoppedSessions: number;
 };
 
 export async function getCurrentDemoResident(db: DbExecutor): Promise<RuntimeResident | null> {
@@ -112,16 +116,28 @@ export async function startMobileOutletSession(
       return { ok: false, error: "No se encontró la toma solicitada." };
     }
 
-    if (outlet.status !== "available") {
-      return { ok: false, error: "La toma no está disponible." };
-    }
-
     const voltage = outlet.voltage ?? 120;
     const maxCurrentAmp = toNumber(outlet.maxCurrentAmp) || 12;
 
     if (voltage <= 0 || maxCurrentAmp <= 0) {
       return { ok: false, error: "La toma no tiene parámetros eléctricos válidos." };
     }
+
+    const ruleDecision = await evaluateStartSession(tx, {
+      propertyId: outlet.propertyId,
+      residentId: resident.id,
+      apartmentId: resident.apartmentId,
+      outletId: outlet.id,
+      method: "mobile",
+      source: "mobile"
+    });
+
+    if (!ruleDecision.allowed) {
+      return { ok: false, error: ruleDecision.message };
+    }
+
+    const effectiveMaxCurrentAmp =
+      toNumber(ruleDecision.details.effectiveMaxCurrentAmp) || maxCurrentAmp;
 
     const [residentActiveSession] = await tx
       .select({ id: chargingSessions.id })
@@ -211,7 +227,7 @@ export async function startMobileOutletSession(
           sessionId: session.id,
           requestedMethod: "mobile",
           voltage,
-          maxCurrentAmp,
+          maxCurrentAmp: effectiveMaxCurrentAmp,
           tariffRatePerKwh: toNumber(tariff.ratePerKwh)
         },
         requestedBy: `resident:${resident.id}`
@@ -359,6 +375,7 @@ export async function runOutletSimulatorTick(db: VoltariaDb): Promise<OutletSimu
   const processedCommands = await pollPendingCommands(db);
   const meterValuesCount = await generateMeterValuesForActiveSessions(db);
   const timedOutSessions = await detectPendingStartTimeouts(db);
+  const ruleStoppedSessions = await detectRuleLimitSessions(db);
   const noLoadSessions = await detectNoLoadSessions(db);
   const overCurrentSessions = await detectOverCurrentSessions(db);
 
@@ -367,7 +384,8 @@ export async function runOutletSimulatorTick(db: VoltariaDb): Promise<OutletSimu
     meterValues: meterValuesCount,
     timedOutSessions,
     noLoadSessions,
-    overCurrentSessions
+    overCurrentSessions,
+    ruleStoppedSessions
   };
 }
 
@@ -477,9 +495,10 @@ export async function processDisableCommand(
       .where(eq(deviceCommands.id, command.id));
 
     const now = new Date();
+    const stopReason = getPayloadReason(command.payload, "simulator_disable_ack");
 
     if (command.sessionId) {
-      await closeSession(tx, command.sessionId, finalStatus, "simulator_disable_ack", now);
+      await closeSession(tx, command.sessionId, finalStatus, stopReason, now);
     }
 
     if (command.chargerId) {
@@ -541,8 +560,10 @@ export async function generateMeterValuesForActiveSessions(db: VoltariaDb) {
     const seconds = latest
       ? Math.max(1, Math.round((now.getTime() - latest.sampledAt.getTime()) / 1000))
       : 15;
+    const settings = await getRuntimeRuleSettings(db, session.propertyId, session.chargerId);
     const voltage = simulateVoltage(session.outletCode, now);
-    const maxCurrentAmp = toNumber(session.maxCurrentAmp) || 12;
+    const maxCurrentAmp =
+      settings.maxCurrentAmp || toNumber(session.maxCurrentAmp) || settings.defaultMaxCurrentAmp || 12;
     const currentAmp = simulateCurrent(session.outletCode, now, maxCurrentAmp);
     const powerW = Math.round(voltage * currentAmp);
     const baseEnergyWh = latest?.energyWh ?? session.meterStartWh ?? 0;
@@ -588,18 +609,24 @@ export async function generateMeterValuesForActiveSessions(db: VoltariaDb) {
 }
 
 export async function detectPendingStartTimeouts(db: VoltariaDb) {
-  const cutoff = new Date(Date.now() - PENDING_START_TIMEOUT_MS);
   const sessions = await db
     .select()
     .from(chargingSessions)
-    .where(and(eq(chargingSessions.status, "pending_start"), lt(chargingSessions.startedAt, cutoff)))
+    .where(eq(chargingSessions.status, "pending_start"))
     .limit(50);
 
   let closed = 0;
 
   for (const session of sessions) {
+    const settings = await getRuntimeRuleSettings(db, session.propertyId, session.chargerId);
+    const cutoff = new Date(Date.now() - settings.startupNoLoadTimeoutSeconds * 1000);
+
+    if (session.startedAt >= cutoff) {
+      continue;
+    }
+
     await db.transaction(async (tx) => {
-      await closeSession(tx, session.id, "failed", "pending_start_timeout", new Date());
+      await closeSession(tx, session.id, "failed", "startup_no_load_timeout", new Date());
 
       await tx.insert(deviceCommands).values({
         propertyId: session.propertyId,
@@ -607,7 +634,7 @@ export async function detectPendingStartTimeouts(db: VoltariaDb) {
         sessionId: session.id,
         commandType: "disable",
         status: "pending",
-        payload: { reason: "pending_start_timeout", simulator: true },
+        payload: { reason: "startup_no_load_timeout", simulator: true },
         requestedBy: "simulator"
       });
     });
@@ -618,11 +645,12 @@ export async function detectPendingStartTimeouts(db: VoltariaDb) {
 }
 
 export async function detectNoLoadSessions(db: VoltariaDb) {
-  const cutoff = new Date(Date.now() - NO_LOAD_TIMEOUT_MS);
   const activeSessions = await getActiveControlledOutletSessions(db);
   let closed = 0;
 
   for (const session of activeSessions) {
+    const settings = await getRuntimeRuleSettings(db, session.propertyId, session.chargerId);
+    const cutoff = new Date(Date.now() - settings.noLoadTimeoutSeconds * 1000);
     const recentValues = await db
       .select()
       .from(meterValues)
@@ -634,17 +662,46 @@ export async function detectNoLoadSessions(db: VoltariaDb) {
       continue;
     }
 
-    const allNoLoad = recentValues.every((value) => (value.powerW ?? 0) < NO_LOAD_POWER_W);
+    const allNoLoad = recentValues.every(
+      (value) => (value.powerW ?? 0) < settings.lowPowerThresholdWatts
+    );
 
     if (!allNoLoad) {
       continue;
     }
 
-    await forceCloseSessionAndOutlet(db, session.id, "completed", "completed_no_load");
+    await forceCloseSessionAndOutlet(db, session.id, "completed", "no_load_completed");
     closed += 1;
   }
 
   return closed;
+}
+
+export async function detectRuleLimitSessions(db: VoltariaDb) {
+  const activeSessions = await getActiveControlledOutletSessions(db);
+  let stopped = 0;
+
+  for (const session of activeSessions) {
+    const settings = await getRuntimeRuleSettings(db, session.propertyId, session.chargerId);
+    const now = new Date();
+    const durationMinutes = Math.floor((now.getTime() - session.startedAt.getTime()) / 60_000);
+    const energyKwh = toNumber(session.energyKwh);
+    const maxDuration = settings.maxSessionDurationMinutes;
+    const maxKwh = settings.maxSessionKwh;
+
+    if (maxDuration && durationMinutes >= maxDuration) {
+      const created = await createRuleStopCommand(db, session.id, "max_duration_reached");
+      stopped += created ? 1 : 0;
+      continue;
+    }
+
+    if (maxKwh && energyKwh >= maxKwh) {
+      const created = await createRuleStopCommand(db, session.id, "max_kwh_reached");
+      stopped += created ? 1 : 0;
+    }
+  }
+
+  return stopped;
 }
 
 export async function detectOverCurrentSessions(db: VoltariaDb) {
@@ -653,27 +710,45 @@ export async function detectOverCurrentSessions(db: VoltariaDb) {
 
   for (const session of activeSessions) {
     const latest = await getLatestSessionMeterValue(db, session.id);
-    const maxCurrentAmp = toNumber(session.maxCurrentAmp) || 12;
+    const settings = await getRuntimeRuleSettings(db, session.propertyId, session.chargerId);
+    const maxCurrentAmp =
+      settings.maxCurrentAmp || toNumber(session.maxCurrentAmp) || settings.defaultMaxCurrentAmp || 12;
 
     if (!latest || toNumber(latest.currentA) <= maxCurrentAmp) {
       continue;
     }
 
     await db.transaction(async (tx) => {
-      await closeSession(tx, session.id, "failed", "over_current", new Date());
-      await tx
-        .update(chargers)
-        .set({ status: "faulted", updatedAt: new Date() })
-        .where(eq(chargers.id, session.chargerId));
-      await tx.insert(alerts).values({
+      if (settings.overcurrentAction === "stop_session") {
+        await closeSession(tx, session.id, "failed", "over_current", new Date());
+        await tx
+          .update(chargers)
+          .set({ status: "faulted", updatedAt: new Date() })
+          .where(eq(chargers.id, session.chargerId));
+      }
+
+      await createAlertOnce(tx, {
         propertyId: session.propertyId,
         chargerId: session.chargerId,
         sessionId: session.id,
         severity: "critical",
-        status: "open",
         title: "Sobrecorriente simulada",
         description: `${session.outletCode} superó ${maxCurrentAmp} A.`,
         source: "Outlet simulator"
+      });
+
+      await tx.insert(systemEvents).values({
+        propertyId: session.propertyId,
+        chargerId: session.chargerId,
+        sessionId: session.id,
+        severity: settings.overcurrentAction === "stop_session" ? "critical" : "warning",
+        eventType: "rule_overcurrent",
+        message:
+          settings.overcurrentAction === "stop_session"
+            ? "La sesión fue detenida por sobrecorriente simulada."
+            : "Se registró sobrecorriente simulada sin detener sesión.",
+        metadata: { action: settings.overcurrentAction, maxCurrentAmp },
+        occurredAt: new Date()
       });
     });
     closed += 1;
@@ -697,6 +772,27 @@ async function createAdminOutletCommand(
     return { ok: false, error: "No se encontró la toma controlada." };
   }
 
+  if (commandType === "enable") {
+    const decision = await evaluateOutletAvailability(db, {
+      propertyId: outlet.propertyId,
+      outletId: outlet.id,
+      method: "admin"
+    });
+
+    if (!decision.allowed) {
+      await recordRuleEvaluation(db, {
+        propertyId: outlet.propertyId,
+        outletId: outlet.id,
+        method: "admin",
+        result: "denied",
+        reason: decision.reason,
+        details: { source: "admin", commandType }
+      });
+
+      return { ok: false, error: decision.message };
+    }
+  }
+
   const [command] = await db
     .insert(deviceCommands)
     .values({
@@ -717,6 +813,107 @@ async function createAdminOutletCommand(
     message: `Comando ${commandType} creado para ${outlet.ocppIdentity}.`,
     ...(command ? { commandId: command.id } : {})
   };
+}
+
+async function createRuleStopCommand(db: VoltariaDb, sessionId: string, reason: string) {
+  const [session] = await db
+    .select({
+      id: chargingSessions.id,
+      propertyId: chargingSessions.propertyId,
+      chargerId: chargingSessions.chargerId
+    })
+    .from(chargingSessions)
+    .where(eq(chargingSessions.id, sessionId))
+    .limit(1);
+
+  if (!session) {
+    return false;
+  }
+
+  const [existingCommand] = await db
+    .select({ id: deviceCommands.id })
+    .from(deviceCommands)
+    .where(
+      and(
+        eq(deviceCommands.sessionId, session.id),
+        eq(deviceCommands.commandType, "disable"),
+        inArray(deviceCommands.status, ["pending", "sent"])
+      )
+    )
+    .limit(1);
+
+  if (existingCommand) {
+    return false;
+  }
+
+  await db.transaction(async (tx) => {
+    const [command] = await tx
+      .insert(deviceCommands)
+      .values({
+        propertyId: session.propertyId,
+        chargerId: session.chargerId,
+        sessionId: session.id,
+        commandType: "disable",
+        status: "pending",
+        payload: { reason, requestedMethod: "rule_engine" },
+        requestedBy: "rule-engine"
+      })
+      .returning({ id: deviceCommands.id });
+
+    await tx.insert(systemEvents).values({
+      propertyId: session.propertyId,
+      chargerId: session.chargerId,
+      sessionId: session.id,
+      severity: "warning",
+      eventType: "rule_stop_requested",
+      message: `El motor de reglas solicitó detener la sesión (${reason}).`,
+      metadata: { reason, commandId: command?.id },
+      occurredAt: new Date()
+    });
+  });
+
+  return true;
+}
+
+async function createAlertOnce(
+  db: DbExecutor,
+  input: {
+    propertyId: string;
+    chargerId: string;
+    sessionId: string;
+    severity: "info" | "warning" | "critical";
+    title: string;
+    description: string;
+    source: string;
+  }
+) {
+  const [existing] = await db
+    .select({ id: alerts.id })
+    .from(alerts)
+    .where(
+      and(
+        eq(alerts.propertyId, input.propertyId),
+        eq(alerts.sessionId, input.sessionId),
+        eq(alerts.title, input.title),
+        eq(alerts.status, "open")
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    return;
+  }
+
+  await db.insert(alerts).values({
+    propertyId: input.propertyId,
+    chargerId: input.chargerId,
+    sessionId: input.sessionId,
+    severity: input.severity,
+    status: "open",
+    title: input.title,
+    description: input.description,
+    source: input.source
+  });
 }
 
 async function getRuntimeProperty(db: DbExecutor) {
@@ -773,6 +970,8 @@ async function getActiveControlledOutletSessions(db: VoltariaDb) {
       id: chargingSessions.id,
       propertyId: chargingSessions.propertyId,
       chargerId: chargingSessions.chargerId,
+      startedAt: chargingSessions.startedAt,
+      energyKwh: chargingSessions.energyKwh,
       maxCurrentAmp: chargers.maxCurrentAmp,
       outletCode: chargers.ocppIdentity
     })
@@ -870,6 +1069,15 @@ function hashSeed(value: string, now: Date) {
   return (
     value.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) + bucket
   );
+}
+
+function getPayloadReason(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return fallback;
+  }
+
+  const reason = (payload as Record<string, unknown>).reason;
+  return typeof reason === "string" && reason.trim().length > 0 ? reason : fallback;
 }
 
 function toNumber(value: unknown) {

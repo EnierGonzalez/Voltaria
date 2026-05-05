@@ -28,7 +28,7 @@ type OutletsData = {
 };
 
 export function MobileOutletsScreen({ data }: { data: OutletsData }) {
-  const available = data.outlets.filter((outlet) => outlet.status === "available").length;
+  const available = data.outlets.filter((outlet) => (outlet.operationalStatus ?? outlet.status) === "available").length;
   const active = data.outlets.filter((outlet) => outlet.status === "charging").length;
 
   return (
@@ -56,12 +56,14 @@ export function MobileOutletsScreen({ data }: { data: OutletsData }) {
                 <p className="truncate font-semibold text-foreground">{outlet.name}</p>
                 <p className="mt-1 truncate text-sm text-muted">{outlet.location}</p>
               </div>
-              <StatusBadge variant={outlet.status}>{outlet.statusLabel}</StatusBadge>
+              <StatusBadge variant={outletStatusVariant(outlet)}>
+                {outlet.operationalStatusLabel ?? outlet.statusLabel}
+              </StatusBadge>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2">
               <Mini label="Potencia" value={formatPower(outlet.currentPowerKw)} />
               <Mini label="Sesión" value={formatKwh(outlet.currentSessionKwh)} />
-              <Mini label="Límite" value={`${outlet.maxCurrentAmp} A`} />
+              <Mini label="Límite" value={`${outlet.appliedMaxCurrentAmp ?? outlet.maxCurrentAmp} A`} />
             </div>
           </a>
         ))}
@@ -89,7 +91,7 @@ export function MobileOutletDetailScreen({
 
   const displayedSession = existingSession ?? null;
   const isCurrentOutletSession = displayedSession?.chargerId === outlet.id;
-  const canStart = !displayedSession && outlet.status === "available";
+  const canStart = !displayedSession && (outlet.operationalStatus ?? outlet.status) === "available";
   const meterPreview = useMemo(() => {
     const power = displayedSession ? displayedSession.powerKw : outlet.currentPowerKw;
     return {
@@ -122,7 +124,7 @@ export function MobileOutletDetailScreen({
 
           <div className="grid grid-cols-2 gap-3">
             <MobileMetricCard label="Voltaje" value={`${outlet.voltage} V`} />
-            <MobileMetricCard label="Límite" value={`${outlet.maxCurrentAmp} A`} />
+            <MobileMetricCard label="Límite" value={`${outlet.appliedMaxCurrentAmp ?? outlet.maxCurrentAmp} A`} />
             <MobileMetricCard label="Potencia actual" value={formatPower(meterPreview.power)} />
             <MobileMetricCard label="kWh sesión" value={formatKwh(meterPreview.kwh)} />
             <MobileMetricCard label="Tarifa" value={`${formatCurrency(tariff?.ratePerKwh ?? 0)} / kWh`} className="col-span-2" />
@@ -173,6 +175,16 @@ export function MobileOutletDetailScreen({
             </button>
           )}
 
+          {!displayedSession && !canStart ? (
+            <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm leading-6 text-warning">
+              {status.label === "Mantenimiento"
+                ? "Esta toma está en mantenimiento."
+                : status.label === "Deshabilitada"
+                  ? "Esta toma no está habilitada para iniciar carga."
+                  : "La toma no está disponible para iniciar carga."}
+            </div>
+          ) : null}
+
           {message ? (
             <div className="rounded-md border border-border bg-panel/70 p-3 text-sm leading-6 text-muted">
               {message}
@@ -211,11 +223,39 @@ function getOutletRuntimeStatus(
     return { label: "Ocupada", variant: "reserved" } as const;
   }
 
+  if (outlet.operationalStatus === "maintenance") {
+    return { label: "Mantenimiento", variant: "warning" } as const;
+  }
+
+  if (outlet.operationalStatus === "disabled") {
+    return { label: "Deshabilitada", variant: "offline" } as const;
+  }
+
+  if (outlet.operationalStatus === "reserved") {
+    return { label: "Reservada", variant: "reserved" } as const;
+  }
+
   if (outlet.status === "faulted" || outlet.status === "offline") {
     return { label: "Fuera de servicio", variant: outlet.status } as const;
   }
 
   return { label: outlet.status === "available" ? "Disponible" : outlet.statusLabel, variant: outlet.status } as const;
+}
+
+function outletStatusVariant(outlet: ControlledOutletSummary) {
+  if (outlet.operationalStatus === "maintenance") {
+    return "warning" as const;
+  }
+
+  if (outlet.operationalStatus === "disabled") {
+    return "offline" as const;
+  }
+
+  if (outlet.operationalStatus === "occupied") {
+    return "charging" as const;
+  }
+
+  return outlet.status;
 }
 
 function Mini({ label, value }: { label: string; value: string }) {

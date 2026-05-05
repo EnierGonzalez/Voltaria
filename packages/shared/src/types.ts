@@ -20,6 +20,14 @@ export type BillingStatus = "paid" | "pending";
 
 export type AccessStatus = "success" | "warning";
 
+export type OperationalOutletStatus = "available" | "maintenance" | "disabled" | "reserved" | "occupied";
+
+export type AccessOverrideStatus = "allowed" | "blocked" | "suspended" | "limited";
+
+export type OvercurrentAction = "alert_only" | "stop_session";
+
+export type RuleEvaluationResult = "allowed" | "denied";
+
 export type RfidCredentialStatus = "active" | "suspended";
 
 export type CredentialType = "rfid" | "qr" | "pin";
@@ -89,6 +97,12 @@ export type ControlledOutletSummary = ChargerSummary & {
   controlMode: ControlMode;
   currentPowerKw: number;
   currentSessionKwh: number;
+  operationalStatus?: OperationalOutletStatus;
+  operationalStatusLabel?: string;
+  allowRfid?: boolean;
+  allowMobile?: boolean;
+  appliedMaxCurrentAmp?: number;
+  appliedMaxSessionDurationMinutes?: number;
 };
 
 export type ChargingSessionSummary = {
@@ -252,6 +266,64 @@ export type AccessDeviceSummary = {
   kind: "rfid_reader" | "rfid_kiosk" | "mobile_app" | "admin_panel";
   status: "online" | "offline" | "disabled";
   locationLabel?: string;
+};
+
+export type PropertyAccessRuleSummary = {
+  id: string;
+  propertyId: PropertyId;
+  name: string;
+  active: boolean;
+  allowRfid: boolean;
+  allowMobile: boolean;
+  allowAdmin: boolean;
+  maxActiveSessionsPerResident: number;
+  maxActiveSessionsPerApartment: number;
+  maxActiveSessionsProperty?: number;
+  maxSessionDurationMinutes?: number;
+  maxSessionKwh?: number;
+  maxSessionCost?: number;
+  startupNoLoadTimeoutSeconds: number;
+  noLoadTimeoutSeconds: number;
+  lowPowerThresholdWatts: number;
+  overcurrentAction: OvercurrentAction;
+  defaultMaxCurrentAmp?: number;
+};
+
+export type AccessScheduleWindowSummary = {
+  id: string;
+  propertyId: PropertyId;
+  ruleId?: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  active: boolean;
+};
+
+export type ResidentAccessRuleSummary = {
+  id?: string;
+  propertyId: PropertyId;
+  residentId: string;
+  status: AccessOverrideStatus;
+  statusLabel: string;
+  allowRfid?: boolean;
+  allowMobile?: boolean;
+  maxSessionDurationMinutes?: number;
+  maxSessionKwh?: number;
+  maxSessionsPerDay?: number;
+  notes?: string;
+};
+
+export type OutletAccessRuleSummary = {
+  id?: string;
+  propertyId: PropertyId;
+  outletId: string;
+  status: Exclude<OperationalOutletStatus, "occupied">;
+  statusLabel: string;
+  allowRfid?: boolean;
+  allowMobile?: boolean;
+  maxCurrentAmp?: number;
+  maxSessionDurationMinutes?: number;
+  notes?: string;
 };
 
 export type SessionEventSummary = {

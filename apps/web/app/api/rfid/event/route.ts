@@ -72,9 +72,25 @@ function statusForResult(reason: string, result: string) {
   if (
     reason === "outlet_occupied" ||
     reason === "resident_has_active_session" ||
-    reason === "credential_not_active"
+    reason === "credential_not_active" ||
+    reason === "resident_session_limit" ||
+    reason === "apartment_session_limit" ||
+    reason === "property_session_limit" ||
+    reason === "pending_command_exists"
   ) {
     return 409;
+  }
+
+  if (
+    reason === "outlet_maintenance" ||
+    reason === "outlet_disabled" ||
+    reason === "outside_schedule" ||
+    reason === "method_not_allowed" ||
+    reason === "resident_blocked" ||
+    reason === "apartment_blocked" ||
+    reason === "no_active_tariff"
+  ) {
+    return 403;
   }
 
   if (result === "rejected" || result === "blocked") {

@@ -22,6 +22,7 @@ export default async function ChargerDetailPage({
       sessions={data.sessions}
       logs={data.logs}
       commands={data.commands}
+      outletRule={data.outletRule ?? null}
       {...(data.currentSession ? { currentSession: data.currentSession } : {})}
     />
   );

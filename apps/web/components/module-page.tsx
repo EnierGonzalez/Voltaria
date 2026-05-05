@@ -45,10 +45,9 @@ import { ChargerStatusCard } from "./charger-status-card";
 import { ConsumptionChart } from "./consumption-chart";
 import { SessionTable } from "./session-table";
 import {
-  adminDisableOutlet,
-  adminEnableOutlet,
   adminStopOutletSession
 } from "@/lib/actions/outlet-actions";
+import { setOutletAccessOverrideAction } from "@/lib/actions/rules-actions";
 
 type ModuleKey =
   | "chargers"
@@ -257,13 +256,15 @@ function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
                   <p className="truncate font-semibold text-foreground">{outlet.name}</p>
                   <p className="mt-1 truncate text-sm text-muted">{outlet.location}</p>
                 </div>
-                <StatusBadge variant={outlet.status}>{outlet.statusLabel}</StatusBadge>
+                <StatusBadge variant={outletStatusVariant(outlet)}>
+                  {outlet.operationalStatusLabel ?? outlet.statusLabel}
+                </StatusBadge>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <MiniStat label="Potencia" value={formatPower(outlet.currentPowerKw)} />
                 <MiniStat label="Sesión" value={formatKwh(outlet.currentSessionKwh)} />
                 <MiniStat label="Voltaje" value={`${outlet.voltage} V`} />
-                <MiniStat label="Límite" value={`${outlet.maxCurrentAmp} A`} />
+                <MiniStat label="Límite" value={`${outlet.appliedMaxCurrentAmp ?? outlet.maxCurrentAmp} A`} />
               </div>
             </a>
             <OutletAdminActions outlet={outlet} />
@@ -322,21 +323,39 @@ function OutletAdminActions({ outlet }: { outlet: ControlledOutletSummary }) {
         <button
           type="button"
           disabled={isPending}
-          onClick={() => runAction("Deshabilitar", () => adminDisableOutlet(outlet.id))}
+          onClick={() =>
+            runAction("Poner en mantenimiento", () =>
+              setOutletAccessOverrideAction({ outletId: outlet.id, status: "maintenance" })
+            )
+          }
           className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning transition hover:bg-warning/20 disabled:opacity-60"
+        >
+          Mantenimiento
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() =>
+            runAction("Deshabilitar", () =>
+              setOutletAccessOverrideAction({ outletId: outlet.id, status: "disabled" })
+            )
+          }
+          className="rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-xs font-semibold text-danger transition hover:bg-danger/20 disabled:opacity-60"
         >
           Deshabilitar
         </button>
-        {outlet.status === "available" ? (
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() => runAction("Habilitar prueba en", () => adminEnableOutlet(outlet.id))}
-            className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs font-semibold text-success transition hover:bg-success/20 disabled:opacity-60"
-          >
-            Habilitar prueba
-          </button>
-        ) : null}
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() =>
+            runAction("Habilitar", () =>
+              setOutletAccessOverrideAction({ outletId: outlet.id, status: "available" })
+            )
+          }
+          className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs font-semibold text-success transition hover:bg-success/20 disabled:opacity-60"
+        >
+          Habilitar
+        </button>
       </div>
       {message ? <p className="text-xs leading-5 text-muted">{message}</p> : null}
     </div>
@@ -468,6 +487,9 @@ function SettingsModule() {
         <SettingItem icon={<Gauge className="h-5 w-5" aria-hidden="true" />} title="OCPP" value="Servidor separado y mensajes raw auditables" />
         <SettingItem icon={<CreditCard className="h-5 w-5" aria-hidden="true" />} title="Tarifas" value="Modelo por propiedad, vigencia y moneda" />
         <SettingItem icon={<CalendarDays className="h-5 w-5" aria-hidden="true" />} title="Migración futura" value="Auth y DB sin acoplarse a Supabase" />
+        <a href="/settings/rules">
+          <SettingItem icon={<Gauge className="h-5 w-5" aria-hidden="true" />} title="Reglas operativas" value="Métodos, límites, horarios y overrides" />
+        </a>
         <a href="/rfid-simulator">
           <SettingItem icon={<Zap className="h-5 w-5" aria-hidden="true" />} title="RFID Simulator" value="Herramienta dev para taps RFID simulados" />
         </a>
@@ -527,6 +549,22 @@ function MiniStat({ label, value }: { label: string; value: string }) {
       <p className="mt-1 truncate text-xs font-semibold text-foreground">{value}</p>
     </div>
   );
+}
+
+function outletStatusVariant(outlet: ControlledOutletSummary) {
+  if (outlet.operationalStatus === "maintenance" || outlet.operationalStatus === "reserved") {
+    return "warning" as const;
+  }
+
+  if (outlet.operationalStatus === "disabled") {
+    return "offline" as const;
+  }
+
+  if (outlet.operationalStatus === "occupied") {
+    return "charging" as const;
+  }
+
+  return outlet.status;
 }
 
 function SettingItem({

@@ -13,9 +13,13 @@ import {
   getCurrentDemoResident,
   getDeviceCommandsForCharger,
   getCredentialEventsForResident,
+  getAccessScheduleWindowSummaries,
   getMeterValueSeries,
   getOcppLogs,
+  getOutletAccessRuleSummary,
+  getPropertyAccessRuleSummary,
   getRecentSessions,
+  getResidentAccessRuleSummary,
   getResidentById,
   getResidentCredentialSummaries,
   getResidentRfidCredential,
@@ -53,6 +57,10 @@ import {
   type MeterValuePoint,
   type MobileAccessSummary,
   type OcppLogSummary,
+  type OutletAccessRuleSummary,
+  type AccessScheduleWindowSummary,
+  type PropertyAccessRuleSummary,
+  type ResidentAccessRuleSummary,
   type ResidentSummary,
   type RfidCredentialSummary,
   type SessionEventSummary,
@@ -97,6 +105,7 @@ export type ChargerDetailData = {
   sessions: ChargingSessionSummary[];
   logs: OcppLogSummary[];
   commands: DeviceCommandSummary[];
+  outletRule?: OutletAccessRuleSummary | null;
 };
 
 export type SessionDetailData = {
@@ -116,11 +125,17 @@ export type ResidentDetailPageData = {
   credentials: RfidCredentialSummary[];
   credentialEvents: CredentialEventSummary[];
   accessDevices: AccessDeviceSummary[];
+  accessRule: ResidentAccessRuleSummary | null;
 };
 
 export type RfidSimulatorPageData = {
   accessDevices: AccessDeviceSummary[];
   outlets: ControlledOutletSummary[];
+};
+
+export type RulesSettingsPageData = {
+  rule: PropertyAccessRuleSummary | null;
+  schedules: AccessScheduleWindowSummary[];
 };
 
 const mockDashboardData: DashboardPageData = {
@@ -300,12 +315,13 @@ export async function getChargerDetailPageData(chargerId: string): Promise<Charg
       const logs = await getOcppLogs(db, { chargerId: charger.id });
 
       return {
-        charger,
-        sessions: chargerSessions,
-        logs,
-        commands: await getDeviceCommandsForCharger(db, charger.id),
-        ...(currentSession ? { currentSession } : {})
-      };
+      charger,
+      sessions: chargerSessions,
+      logs,
+      commands: await getDeviceCommandsForCharger(db, charger.id),
+      outletRule: charger.kind === "controlled_outlet" ? await getOutletAccessRuleSummary(db, charger.id) : null,
+      ...(currentSession ? { currentSession } : {})
+    };
     }
   );
 }
@@ -354,7 +370,15 @@ export async function getResidentDetailPageData(residentId: string): Promise<Res
       sessions: mockResidentSessions,
       credentials: [],
       credentialEvents: [],
-      accessDevices: mockAccessDevices
+      accessDevices: mockAccessDevices,
+      accessRule: mockResident
+        ? {
+            propertyId: mockResident.propertyId,
+            residentId: mockResident.id,
+            status: "allowed",
+            statusLabel: "Permitido"
+          }
+        : null
     },
     async ({ db }) => {
       const resident = await getResidentById(db, residentId);
@@ -365,7 +389,15 @@ export async function getResidentDetailPageData(residentId: string): Promise<Res
           sessions: mockResidentSessions,
           credentials: [],
           credentialEvents: [],
-          accessDevices: mockAccessDevices
+          accessDevices: mockAccessDevices,
+          accessRule: mockResident
+            ? {
+                propertyId: mockResident.propertyId,
+                residentId: mockResident.id,
+                status: "allowed",
+                statusLabel: "Permitido"
+              }
+            : null
         };
       }
 
@@ -376,7 +408,8 @@ export async function getResidentDetailPageData(residentId: string): Promise<Res
         sessions: sessions.filter((session) => session.residentName === resident.name),
         credentials: await getResidentCredentialSummaries(db, resident.id),
         credentialEvents: await getCredentialEventsForResident(db, resident.id),
-        accessDevices: await getAccessDeviceSummaries(db, resident.propertyId)
+        accessDevices: await getAccessDeviceSummaries(db, resident.propertyId),
+        accessRule: await getResidentAccessRuleSummary(db, resident.id)
       };
     }
   );
@@ -401,6 +434,54 @@ export async function getRfidSimulatorPageData(): Promise<RfidSimulatorPageData>
       return {
         accessDevices: await getAccessDeviceSummaries(db, property.id),
         outlets: await getControlledOutlets(db, property.id)
+      };
+    }
+  );
+}
+
+export async function getRulesSettingsPageData(): Promise<RulesSettingsPageData> {
+  return withDatabaseFallback<RulesSettingsPageData>(
+    {
+      rule: {
+        id: "rule_mock",
+        propertyId: "prop_aurora",
+        name: "Regla residencial estándar",
+        active: true,
+        allowRfid: true,
+        allowMobile: true,
+        allowAdmin: true,
+        maxActiveSessionsPerResident: 1,
+        maxActiveSessionsPerApartment: 2,
+        maxActiveSessionsProperty: 16,
+        maxSessionDurationMinutes: 480,
+        startupNoLoadTimeoutSeconds: 90,
+        noLoadTimeoutSeconds: 600,
+        lowPowerThresholdWatts: 20,
+        overcurrentAction: "stop_session",
+        defaultMaxCurrentAmp: 12
+      },
+      schedules: Array.from({ length: 7 }, (_, dayOfWeek) => ({
+        id: `schedule_mock_${dayOfWeek}`,
+        propertyId: "prop_aurora",
+        ruleId: "rule_mock",
+        dayOfWeek,
+        startTime: "00:00",
+        endTime: "23:59",
+        active: true
+      }))
+    },
+    async ({ db }) => {
+      const property = await getDefaultProperty(db);
+
+      if (!property) {
+        return { rule: null, schedules: [] };
+      }
+
+      const rule = await getPropertyAccessRuleSummary(db, property.id);
+
+      return {
+        rule,
+        schedules: rule ? await getAccessScheduleWindowSummaries(db, property.id, rule.id) : []
       };
     }
   );

@@ -12,9 +12,13 @@ import type {
   MeterValuePoint,
   MobileAccessCredential,
   OcppLogSummary,
+  OutletAccessRuleSummary,
+  PropertyAccessRuleSummary,
   PropertySummary,
+  ResidentAccessRuleSummary,
   ResidentSummary,
   RfidCredentialSummary,
+  AccessScheduleWindowSummary,
   TariffSummary
 } from "@voltaria/shared";
 import type { VoltariaDb } from "./client";
@@ -22,6 +26,8 @@ import {
   alerts,
   apartments,
   accessDevices,
+  accessScheduleWindows,
+  authorizationAttempts,
   billingRecords,
   chargerConnectors,
   chargers,
@@ -30,9 +36,13 @@ import {
   deviceCommands,
   meterValues,
   ocppMessages,
+  outletAccessOverrides,
+  propertyAccessRules,
   properties,
+  residentAccessOverrides,
   residentCredentials,
   residents,
+  ruleEvaluations,
   tariffs
 } from "./schema";
 
@@ -48,6 +58,11 @@ export type DashboardSummary = {
   currentPowerKw: number;
   averageSessionMinutes: number;
   activeResidents: number;
+  rejectedSessionsToday: number;
+  rejectedRfidAttemptsToday: number;
+  maintenanceOutlets: number;
+  ruleStoppedSessions: number;
+  operationalAlerts: number;
 };
 
 const statusLabels = {
@@ -68,6 +83,21 @@ const statusLabels = {
   info: "Info",
   warning: "Warning",
   critical: "Crítica"
+} as const;
+
+const operationalStatusLabels = {
+  available: "Disponible",
+  maintenance: "Mantenimiento",
+  disabled: "Deshabilitada",
+  reserved: "Reservada",
+  occupied: "Ocupada"
+} as const;
+
+const accessOverrideStatusLabels = {
+  allowed: "Permitido",
+  blocked: "Bloqueado",
+  suspended: "Suspendido",
+  limited: "Limitado"
 } as const;
 
 const credentialStatusLabels = {
@@ -115,9 +145,49 @@ export async function getDashboardSummary(
   const alertsList = await getAlerts(db, propertyId);
   const billing = await getBillingSummary(db, propertyId);
   const residentsList = await getResidents(db, propertyId);
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const [rejectedRules] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(ruleEvaluations)
+    .where(
+      and(
+        eq(ruleEvaluations.propertyId, propertyId),
+        eq(ruleEvaluations.result, "denied"),
+        sql`${ruleEvaluations.createdAt} >= ${todayStart}`
+      )
+    );
+  const [rejectedRfid] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(authorizationAttempts)
+    .where(
+      and(
+        eq(authorizationAttempts.propertyId, propertyId),
+        eq(authorizationAttempts.method, "rfid"),
+        sql`${authorizationAttempts.result} in ('rejected', 'blocked')`,
+        sql`${authorizationAttempts.createdAt} >= ${todayStart}`
+      )
+    );
+  const [maintenance] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(outletAccessOverrides)
+    .where(
+      and(
+        eq(outletAccessOverrides.propertyId, propertyId),
+        eq(outletAccessOverrides.status, "maintenance")
+      )
+    );
+  const [ruleStops] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(chargingSessions)
+    .where(
+      and(
+        eq(chargingSessions.propertyId, propertyId),
+        sql`${chargingSessions.stopReason} in ('max_duration_reached', 'max_kwh_reached', 'startup_no_load_timeout', 'no_load_completed', 'over_current')`
+      )
+    );
 
   const activeSessions = sessions.filter((session) => session.status === "active");
-  const completedSessions = sessions.filter((session) => session.status === "completed");
   const totalDuration = sessions.reduce((sum, session) => sum + session.durationMinutes, 0);
 
   return {
@@ -131,7 +201,15 @@ export async function getDashboardSummary(
     openAlerts: alertsList.length,
     currentPowerKw: activeSessions.reduce((sum, session) => sum + session.powerKw, 0),
     averageSessionMinutes: sessions.length > 0 ? Math.round(totalDuration / sessions.length) : 0,
-    activeResidents: residentsList.filter((resident) => resident.accessStatus === "success").length
+    activeResidents: residentsList.filter((resident) => resident.accessStatus === "success").length,
+    rejectedSessionsToday: rejectedRules?.count ?? 0,
+    rejectedRfidAttemptsToday: rejectedRfid?.count ?? 0,
+    maintenanceOutlets: maintenance?.count ?? 0,
+    ruleStoppedSessions: ruleStops?.count ?? 0,
+    operationalAlerts: alertsList.filter((alert) =>
+      alert.title.toLowerCase().includes("sobrecorriente") ||
+      alert.description.toLowerCase().includes("no-load")
+    ).length
   };
 }
 
@@ -243,16 +321,45 @@ export async function getControlledOutlets(
   propertyId: string
 ): Promise<ControlledOutletSummary[]> {
   const points = await getChargers(db, propertyId);
+  const overrides = await db
+    .select()
+    .from(outletAccessOverrides)
+    .where(eq(outletAccessOverrides.propertyId, propertyId));
+  const overridesByOutlet = new Map(overrides.map((override) => [override.outletId, override]));
 
-  return points.filter((point): point is ControlledOutletSummary => {
-    return (
-      point.kind === "controlled_outlet" &&
-      typeof point.voltage === "number" &&
-      typeof point.maxCurrentAmp === "number" &&
-      typeof point.publicAccessCode === "string" &&
-      typeof point.controlMode === "string"
-    );
-  });
+  return points
+    .filter((point): point is ControlledOutletSummary => {
+      return (
+        point.kind === "controlled_outlet" &&
+        typeof point.voltage === "number" &&
+        typeof point.maxCurrentAmp === "number" &&
+        typeof point.publicAccessCode === "string" &&
+        typeof point.controlMode === "string"
+      );
+    })
+    .map((point) => {
+      const override = overridesByOutlet.get(point.id);
+      const operationalStatus =
+        point.currentSessionId || point.status === "charging"
+          ? "occupied"
+          : override?.status ?? "available";
+
+      return {
+        ...point,
+        operationalStatus,
+        operationalStatusLabel: operationalStatusLabels[operationalStatus],
+        ...(override?.allowRfid !== null && typeof override?.allowRfid !== "undefined"
+          ? { allowRfid: override.allowRfid }
+          : {}),
+        ...(override?.allowMobile !== null && typeof override?.allowMobile !== "undefined"
+          ? { allowMobile: override.allowMobile }
+          : {}),
+        appliedMaxCurrentAmp: toNumber(override?.maxCurrentAmp) || point.maxCurrentAmp,
+        ...(override?.maxSessionDurationMinutes
+          ? { appliedMaxSessionDurationMinutes: override.maxSessionDurationMinutes }
+          : {})
+      };
+    });
 }
 
 export async function getControlledOutletByPublicCode(
@@ -553,6 +660,177 @@ export async function getAccessDeviceSummaries(
     status: device.status,
     ...(device.locationLabel ? { locationLabel: device.locationLabel } : {})
   }));
+}
+
+export async function getPropertyAccessRuleSummary(
+  db: VoltariaDb,
+  propertyId: string
+): Promise<PropertyAccessRuleSummary | null> {
+  const [rule] = await db
+    .select()
+    .from(propertyAccessRules)
+    .where(and(eq(propertyAccessRules.propertyId, propertyId), eq(propertyAccessRules.active, true)))
+    .orderBy(desc(propertyAccessRules.updatedAt))
+    .limit(1);
+
+  if (!rule) {
+    return null;
+  }
+
+  return {
+    id: rule.id,
+    propertyId: rule.propertyId,
+    name: rule.name,
+    active: rule.active,
+    allowRfid: rule.allowRfid,
+    allowMobile: rule.allowMobile,
+    allowAdmin: rule.allowAdmin,
+    maxActiveSessionsPerResident: rule.maxActiveSessionsPerResident,
+    maxActiveSessionsPerApartment: rule.maxActiveSessionsPerApartment,
+    ...(rule.maxActiveSessionsProperty !== null
+      ? { maxActiveSessionsProperty: rule.maxActiveSessionsProperty }
+      : {}),
+    ...(rule.maxSessionDurationMinutes !== null
+      ? { maxSessionDurationMinutes: rule.maxSessionDurationMinutes }
+      : {}),
+    ...(rule.maxSessionKwh !== null ? { maxSessionKwh: toNumber(rule.maxSessionKwh) } : {}),
+    ...(rule.maxSessionCost !== null ? { maxSessionCost: toNumber(rule.maxSessionCost) } : {}),
+    startupNoLoadTimeoutSeconds: rule.startupNoLoadTimeoutSeconds,
+    noLoadTimeoutSeconds: rule.noLoadTimeoutSeconds,
+    lowPowerThresholdWatts: toNumber(rule.lowPowerThresholdWatts),
+    overcurrentAction: rule.overcurrentAction,
+    ...(rule.defaultMaxCurrentAmp !== null
+      ? { defaultMaxCurrentAmp: toNumber(rule.defaultMaxCurrentAmp) }
+      : {})
+  };
+}
+
+export async function getAccessScheduleWindowSummaries(
+  db: VoltariaDb,
+  propertyId: string,
+  ruleId?: string
+): Promise<AccessScheduleWindowSummary[]> {
+  const conditions = [
+    eq(accessScheduleWindows.propertyId, propertyId),
+    eq(accessScheduleWindows.active, true),
+    ruleId ? eq(accessScheduleWindows.ruleId, ruleId) : undefined
+  ].filter(Boolean);
+  const rows = await db
+    .select()
+    .from(accessScheduleWindows)
+    .where(and(...conditions))
+    .orderBy(accessScheduleWindows.dayOfWeek, accessScheduleWindows.startTime);
+
+  return rows.map((window) => ({
+    id: window.id,
+    propertyId: window.propertyId,
+    ...(window.ruleId ? { ruleId: window.ruleId } : {}),
+    dayOfWeek: window.dayOfWeek,
+    startTime: window.startTime,
+    endTime: window.endTime,
+    active: window.active
+  }));
+}
+
+export async function getResidentAccessRuleSummary(
+  db: VoltariaDb,
+  residentId: string
+): Promise<ResidentAccessRuleSummary | null> {
+  const [resident] = await db
+    .select({ id: residents.id, propertyId: residents.propertyId })
+    .from(residents)
+    .where(eq(residents.id, residentId))
+    .limit(1);
+
+  if (!resident) {
+    return null;
+  }
+
+  const [override] = await db
+    .select()
+    .from(residentAccessOverrides)
+    .where(
+      and(
+        eq(residentAccessOverrides.propertyId, resident.propertyId),
+        eq(residentAccessOverrides.residentId, resident.id)
+      )
+    )
+    .limit(1);
+
+  if (!override) {
+    return {
+      propertyId: resident.propertyId,
+      residentId: resident.id,
+      status: "allowed",
+      statusLabel: accessOverrideStatusLabels.allowed
+    };
+  }
+
+  return {
+    id: override.id,
+    propertyId: override.propertyId,
+    residentId: override.residentId,
+    status: override.status,
+    statusLabel: accessOverrideStatusLabels[override.status],
+    ...(override.allowRfid !== null ? { allowRfid: override.allowRfid } : {}),
+    ...(override.allowMobile !== null ? { allowMobile: override.allowMobile } : {}),
+    ...(override.maxSessionDurationMinutes !== null
+      ? { maxSessionDurationMinutes: override.maxSessionDurationMinutes }
+      : {}),
+    ...(override.maxSessionKwh !== null ? { maxSessionKwh: toNumber(override.maxSessionKwh) } : {}),
+    ...(override.maxSessionsPerDay !== null ? { maxSessionsPerDay: override.maxSessionsPerDay } : {}),
+    ...(override.notes ? { notes: override.notes } : {})
+  };
+}
+
+export async function getOutletAccessRuleSummary(
+  db: VoltariaDb,
+  outletId: string
+): Promise<OutletAccessRuleSummary | null> {
+  const [outlet] = await db
+    .select({ id: chargers.id, propertyId: chargers.propertyId })
+    .from(chargers)
+    .where(eq(chargers.id, outletId))
+    .limit(1);
+
+  if (!outlet) {
+    return null;
+  }
+
+  const [override] = await db
+    .select()
+    .from(outletAccessOverrides)
+    .where(
+      and(
+        eq(outletAccessOverrides.propertyId, outlet.propertyId),
+        eq(outletAccessOverrides.outletId, outlet.id)
+      )
+    )
+    .limit(1);
+
+  if (!override) {
+    return {
+      propertyId: outlet.propertyId,
+      outletId: outlet.id,
+      status: "available",
+      statusLabel: operationalStatusLabels.available
+    };
+  }
+
+  return {
+    id: override.id,
+    propertyId: override.propertyId,
+    outletId: override.outletId,
+    status: override.status,
+    statusLabel: operationalStatusLabels[override.status],
+    ...(override.allowRfid !== null ? { allowRfid: override.allowRfid } : {}),
+    ...(override.allowMobile !== null ? { allowMobile: override.allowMobile } : {}),
+    ...(override.maxCurrentAmp !== null ? { maxCurrentAmp: toNumber(override.maxCurrentAmp) } : {}),
+    ...(override.maxSessionDurationMinutes !== null
+      ? { maxSessionDurationMinutes: override.maxSessionDurationMinutes }
+      : {}),
+    ...(override.notes ? { notes: override.notes } : {})
+  };
 }
 
 export async function getAlerts(db: VoltariaDb, propertyId: string): Promise<AlertSummary[]> {

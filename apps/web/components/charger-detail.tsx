@@ -13,7 +13,8 @@ import {
   type ChargerSummary,
   type ChargingSessionSummary,
   type DeviceCommandSummary,
-  type OcppLogSummary
+  type OcppLogSummary,
+  type OutletAccessRuleSummary
 } from "@voltaria/shared";
 import { adminStopOutletSession } from "@/lib/actions/outlet-actions";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -25,13 +26,15 @@ export function ChargerDetail({
   currentSession,
   sessions,
   logs,
-  commands
+  commands,
+  outletRule
 }: {
   charger: ChargerSummary;
   currentSession?: ChargingSessionSummary;
   sessions: ChargingSessionSummary[];
   logs: OcppLogSummary[];
   commands: DeviceCommandSummary[];
+  outletRule?: OutletAccessRuleSummary | null;
 }) {
   const [stopRequested, setStopRequested] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -126,6 +129,26 @@ export function ChargerDetail({
           </div>
         ) : null}
       </SectionCard>
+
+      {isOutlet ? (
+        <SectionCard title="Reglas aplicadas" description="Estado operativo y límites efectivos de esta toma">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Estado operativo" value={outletRule?.statusLabel ?? "Disponible"} />
+            <Metric label="RFID" value={outletRule?.allowRfid === false ? "No permitido" : "Permitido"} />
+            <Metric label="Móvil" value={outletRule?.allowMobile === false ? "No permitido" : "Permitido"} />
+            <Metric label="Corriente máx." value={`${outletRule?.maxCurrentAmp ?? charger.maxCurrentAmp ?? 12} A`} />
+            <Metric
+              label="Duración máx."
+              value={
+                outletRule?.maxSessionDurationMinutes
+                  ? formatDuration(outletRule.maxSessionDurationMinutes)
+                  : "Regla global"
+              }
+            />
+            <Metric label="Notas" value={outletRule?.notes ?? "Sin override"} />
+          </div>
+        </SectionCard>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <SectionCard title={isOutlet ? "Últimos comandos" : "Últimos mensajes OCPP"} description={isOutlet ? "Historial de enable/disable del simulador" : "Mensajes crudos resumidos para auditoría"}>

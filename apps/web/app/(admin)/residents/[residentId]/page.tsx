@@ -23,6 +23,7 @@ export default async function ResidentDetailPage({
       credentials={data.credentials}
       credentialEvents={data.credentialEvents}
       accessDevices={data.accessDevices}
+      accessRule={data.accessRule}
     />
   );
 }

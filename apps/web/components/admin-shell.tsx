@@ -43,7 +43,8 @@ const titleByPath: Record<string, string> = {
   "/alerts": "Alerts",
   "/reports": "Reports",
   "/rfid-simulator": "RFID Simulator",
-  "/settings": "Settings"
+  "/settings": "Settings",
+  "/settings/rules": "Reglas operativas"
 };
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -54,6 +55,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       ? "Detalle de punto"
       : pathname.startsWith("/outlets")
         ? "Tomas 120V"
+        : pathname.startsWith("/settings/rules")
+          ? "Reglas operativas"
       : pathname.startsWith("/sessions/")
         ? "Session Detail"
         : "Voltaria");

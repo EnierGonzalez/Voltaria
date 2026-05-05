@@ -6,4 +6,5 @@ export * from "./load-env";
 export * from "./outlet-runtime";
 export * from "./queries";
 export * from "./rfid-utils";
+export * from "./rules-engine";
 export * from "./schema";
