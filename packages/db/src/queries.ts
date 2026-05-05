@@ -6,6 +6,7 @@ import type {
   ChargingSessionSummary,
   ConsumptionPoint,
   ControlledOutletSummary,
+  DeviceCommandSummary,
   MeterValuePoint,
   MobileAccessCredential,
   OcppLogSummary,
@@ -21,6 +22,7 @@ import {
   chargerConnectors,
   chargers,
   chargingSessions,
+  deviceCommands,
   meterValues,
   ocppMessages,
   properties,
@@ -597,6 +599,30 @@ export async function getOcppLogs(
       payloadSummary: summarizePayload(row.payload),
       createdAt: toIso(row.receivedAt)
     }));
+}
+
+export async function getDeviceCommandsForCharger(
+  db: VoltariaDb,
+  chargerId: string,
+  limit = 12
+): Promise<DeviceCommandSummary[]> {
+  const rows = await db
+    .select()
+    .from(deviceCommands)
+    .where(eq(deviceCommands.chargerId, chargerId))
+    .orderBy(desc(deviceCommands.createdAt))
+    .limit(limit);
+
+  return rows.map((command) => ({
+    id: command.id,
+    ...(command.chargerId ? { chargerId: command.chargerId } : {}),
+    ...(command.sessionId ? { sessionId: command.sessionId } : {}),
+    commandType: command.commandType,
+    status: command.status,
+    ...(command.requestedBy ? { requestedBy: command.requestedBy } : {}),
+    createdAt: toIso(command.createdAt),
+    ...(command.acknowledgedAt ? { acknowledgedAt: toIso(command.acknowledgedAt) } : {})
+  }));
 }
 
 function mapSessionRow(row: {

@@ -13,7 +13,8 @@ import {
   UserRound,
   Zap
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type ReactNode } from "react";
 import { SectionCard, StatCard, StatusBadge } from "@voltaria/ui";
 import {
   type AlertSummary,
@@ -43,6 +44,11 @@ import { AlertItem } from "./alert-item";
 import { ChargerStatusCard } from "./charger-status-card";
 import { ConsumptionChart } from "./consumption-chart";
 import { SessionTable } from "./session-table";
+import {
+  adminDisableOutlet,
+  adminEnableOutlet,
+  adminStopOutletSession
+} from "@/lib/actions/outlet-actions";
 
 type ModuleKey =
   | "chargers"
@@ -241,36 +247,99 @@ function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
     <SectionCard title="Tomas controladas 120V" description="16 canales simulados listos para hardware futuro">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {outlets.map((outlet) => (
-          <a
+          <div
             key={outlet.id}
-            href={`/chargers/${outlet.id}`}
-            className="block min-w-0 overflow-hidden rounded-lg border border-border bg-panel2/64 p-4 transition hover:border-cyan/50 hover:bg-panel2"
+            className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel2/64 p-4 transition hover:border-cyan/50 hover:bg-panel2"
           >
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-foreground">{outlet.name}</p>
-                <p className="mt-1 truncate text-sm text-muted">{outlet.location}</p>
+            <a href={`/chargers/${outlet.id}`} className="block min-w-0">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-foreground">{outlet.name}</p>
+                  <p className="mt-1 truncate text-sm text-muted">{outlet.location}</p>
+                </div>
+                <StatusBadge variant={outlet.status}>{outlet.statusLabel}</StatusBadge>
               </div>
-              <StatusBadge variant={outlet.status}>{outlet.statusLabel}</StatusBadge>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-              <MiniStat label="Potencia" value={formatPower(outlet.currentPowerKw)} />
-              <MiniStat label="Sesión" value={formatKwh(outlet.currentSessionKwh)} />
-              <MiniStat label="Voltaje" value={`${outlet.voltage} V`} />
-              <MiniStat label="Límite" value={`${outlet.maxCurrentAmp} A`} />
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs font-semibold text-success">
-                Habilitar
-              </span>
-              <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning">
-                Deshabilitar
-              </span>
-            </div>
-          </a>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <MiniStat label="Potencia" value={formatPower(outlet.currentPowerKw)} />
+                <MiniStat label="Sesión" value={formatKwh(outlet.currentSessionKwh)} />
+                <MiniStat label="Voltaje" value={`${outlet.voltage} V`} />
+                <MiniStat label="Límite" value={`${outlet.maxCurrentAmp} A`} />
+              </div>
+            </a>
+            <OutletAdminActions outlet={outlet} />
+          </div>
         ))}
       </div>
     </SectionCard>
+  );
+}
+
+function OutletAdminActions({ outlet }: { outlet: ControlledOutletSummary }) {
+  const [message, setMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  const runAction = (
+    label: string,
+    action: () => Promise<{ ok: boolean; message?: string; error?: string }>
+  ) => {
+    const confirmed = window.confirm(`${label} ${outlet.code}?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    startTransition(() => {
+      void (async () => {
+        const result = await action();
+        setMessage(result.ok ? result.message ?? "Comando creado." : result.error ?? "No se pudo crear el comando.");
+        router.refresh();
+      })();
+    });
+  };
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <a
+          href={`/chargers/${outlet.id}`}
+          className="rounded-md border border-cyan/30 bg-cyan/10 px-2 py-1 text-xs font-semibold text-cyan transition hover:bg-cyan/20"
+        >
+          Ver detalle
+        </a>
+        {outlet.currentSessionId ? (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() =>
+              runAction("Detener sesión en", () => adminStopOutletSession(outlet.currentSessionId!))
+            }
+            className="rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-xs font-semibold text-danger transition hover:bg-danger/20 disabled:opacity-60"
+          >
+            Detener sesión
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => runAction("Deshabilitar", () => adminDisableOutlet(outlet.id))}
+          className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning transition hover:bg-warning/20 disabled:opacity-60"
+        >
+          Deshabilitar
+        </button>
+        {outlet.status === "available" ? (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => runAction("Habilitar prueba en", () => adminEnableOutlet(outlet.id))}
+            className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs font-semibold text-success transition hover:bg-success/20 disabled:opacity-60"
+          >
+            Habilitar prueba
+          </button>
+        ) : null}
+      </div>
+      {message ? <p className="text-xs leading-5 text-muted">{message}</p> : null}
+    </div>
   );
 }
 

@@ -9,6 +9,8 @@ import {
   getConsumptionSeries,
   getDashboardSummary,
   getDefaultProperty,
+  getCurrentDemoResident,
+  getDeviceCommandsForCharger,
   getMeterValueSeries,
   getOcppLogs,
   getRecentSessions,
@@ -24,6 +26,7 @@ import {
   dashboardStats,
   meterValueSeries,
   mobileAccessSummary,
+  mobileSessions,
   monthlyConsumptionSeries,
   ocppLogs,
   recentAlerts,
@@ -39,6 +42,7 @@ import {
   type ChargingSessionSummary,
   type ControlledOutletSummary,
   type ConsumptionPoint,
+  type DeviceCommandSummary,
   type MeterValuePoint,
   type MobileAccessSummary,
   type OcppLogSummary,
@@ -82,6 +86,7 @@ export type ChargerDetailData = {
   currentSession?: ChargingSessionSummary;
   sessions: ChargingSessionSummary[];
   logs: OcppLogSummary[];
+  commands: DeviceCommandSummary[];
 };
 
 export type SessionDetailData = {
@@ -89,6 +94,10 @@ export type SessionDetailData = {
   events: SessionEventSummary[];
   meterValues: MeterValuePoint[];
   logs: OcppLogSummary[];
+};
+
+export type MobileChargeData = {
+  session: ChargingSessionSummary | null;
 };
 
 const mockDashboardData: DashboardPageData = {
@@ -232,6 +241,7 @@ export async function getChargerDetailPageData(chargerId: string): Promise<Charg
       charger: mockCharger,
       sessions: mockSessions,
       logs: mockLogs,
+      commands: [],
       ...(mockCurrentSession ? { currentSession: mockCurrentSession } : {})
     },
     async ({ db }) => {
@@ -242,6 +252,7 @@ export async function getChargerDetailPageData(chargerId: string): Promise<Charg
           charger: mockCharger,
           sessions: mockSessions,
           logs: mockLogs,
+          commands: [],
           ...(mockCurrentSession ? { currentSession: mockCurrentSession } : {})
         };
       }
@@ -257,6 +268,7 @@ export async function getChargerDetailPageData(chargerId: string): Promise<Charg
         charger,
         sessions: chargerSessions,
         logs,
+        commands: await getDeviceCommandsForCharger(db, charger.id),
         ...(currentSession ? { currentSession } : {})
       };
     }
@@ -314,6 +326,26 @@ export async function getMobileAccessData(): Promise<MobileAccessSummary> {
       statusLabel: credential.status === "active" ? "Acceso activo" : "Tarjeta suspendida",
       credential
     };
+  });
+}
+
+export async function getMobileChargeData(): Promise<MobileChargeData> {
+  return withDatabaseFallback<MobileChargeData>({ session: mobileSessions[0] ?? null }, async ({ db }) => {
+    const resident = await getCurrentDemoResident(db);
+
+    if (!resident) {
+      return { session: mobileSessions[0] ?? null };
+    }
+
+    const sessions = await getRecentSessions(db, resident.propertyId, 80);
+    const session =
+      sessions.find(
+        (item) =>
+          item.residentName === resident.fullName &&
+          (item.status === "active" || item.status === "pending_start")
+      ) ?? null;
+
+    return { session };
   });
 }
 

@@ -12,6 +12,10 @@ export type ActivationMethod = "rfid" | "mobile" | "admin";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
+export type DeviceCommandType = "enable" | "disable" | "read_status";
+
+export type DeviceCommandStatus = "pending" | "sent" | "acknowledged" | "failed" | "timeout";
+
 export type BillingStatus = "paid" | "pending";
 
 export type AccessStatus = "success" | "warning";
@@ -178,6 +182,17 @@ export type OcppLogSummary = {
   uniqueId: string;
   payloadSummary: string;
   createdAt: string;
+};
+
+export type DeviceCommandSummary = {
+  id: string;
+  chargerId?: string;
+  sessionId?: string;
+  commandType: DeviceCommandType;
+  status: DeviceCommandStatus;
+  requestedBy?: string;
+  createdAt: string;
+  acknowledgedAt?: string;
 };
 
 export type SessionEventSummary = {

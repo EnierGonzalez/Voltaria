@@ -1,19 +1,23 @@
 "use client";
 
 import { KeyRound, PlugZap, StopCircle, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 import { SectionCard, StatusBadge } from "@voltaria/ui";
 import {
   formatCurrency,
   formatKwh,
   formatPower,
   mobileResident,
-  startOutletSession,
   type ChargingSessionSummary,
   type ControlledOutletSummary,
   type ResidentSummary,
   type TariffSummary
 } from "@voltaria/shared";
+import {
+  startMobileOutletSession,
+  stopMobileOutletSession
+} from "@/lib/actions/outlet-actions";
 import { MobileMetricCard } from "./mobile-metric-card";
 
 type OutletsData = {
@@ -79,11 +83,12 @@ export function MobileOutletDetailScreen({
     (session) => session.status === "active" || session.status === "pending_start"
   );
   const existingSession = activeSessions.find((session) => session.residentName === resident.name);
-  const [localSession, setLocalSession] = useState<ChargingSessionSummary | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [stopped, setStopped] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
-  const displayedSession = stopped ? null : localSession ?? existingSession ?? null;
+  const displayedSession = existingSession ?? null;
+  const isCurrentOutletSession = displayedSession?.chargerId === outlet.id;
   const canStart = !displayedSession && outlet.status === "available";
   const meterPreview = useMemo(() => {
     const power = displayedSession ? displayedSession.powerKw : outlet.currentPowerKw;
@@ -93,13 +98,14 @@ export function MobileOutletDetailScreen({
       cost: (displayedSession?.deliveredKwh ?? outlet.currentSessionKwh) * (tariff?.ratePerKwh ?? 0)
     };
   }, [displayedSession, outlet.currentPowerKw, outlet.currentSessionKwh, tariff?.ratePerKwh]);
+  const status = getOutletRuntimeStatus(outlet, displayedSession, isCurrentOutletSession);
 
   return (
     <div className="space-y-5">
       <SectionCard
         title={outlet.name}
         description={outlet.location}
-        action={<StatusBadge variant={displayedSession ? "active" : outlet.status}>{displayedSession ? "Activa" : outlet.statusLabel}</StatusBadge>}
+        action={<StatusBadge variant={status.variant}>{status.label}</StatusBadge>}
       >
         <div className="space-y-4">
           <div className="rounded-lg border border-cyan/30 bg-panel2 p-4">
@@ -122,44 +128,48 @@ export function MobileOutletDetailScreen({
             <MobileMetricCard label="Tarifa" value={`${formatCurrency(tariff?.ratePerKwh ?? 0)} / kWh`} className="col-span-2" />
           </div>
 
-          {displayedSession ? (
+          {displayedSession && isCurrentOutletSession ? (
             <button
               type="button"
               onClick={() => {
-                setStopped(true);
-                setLocalSession(null);
-                setMessage("Sesión detenida en simulador. El comando disable quedó registrado de forma mock.");
+                startTransition(() => {
+                  void (async () => {
+                    const result = await stopMobileOutletSession(displayedSession.id);
+                    setMessage(result.ok ? result.message : result.error);
+                    router.refresh();
+                  })();
+                });
               }}
+              disabled={isPending}
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-danger/40 bg-danger/12 px-4 text-sm font-semibold text-danger transition hover:bg-danger/20"
             >
               <StopCircle className="h-4 w-4" aria-hidden="true" />
-              Detener carga
+              {isPending ? "Enviando comando..." : "Detener carga"}
             </button>
+          ) : displayedSession ? (
+            <a
+              href="/mobile/charge"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-cyan/40 bg-cyan/12 px-4 text-sm font-semibold text-cyan transition hover:bg-cyan/20"
+            >
+              Ver sesión activa
+            </a>
           ) : (
             <button
               type="button"
-              disabled={!canStart}
+              disabled={!canStart || isPending}
               onClick={() => {
-                const result = startOutletSession({
-                  outlet,
-                  resident,
-                  activeSessions,
-                  ...(tariff ? { tariff } : {}),
-                  method: "mobile"
+                startTransition(() => {
+                  void (async () => {
+                    const result = await startMobileOutletSession(outlet.publicAccessCode);
+                    setMessage(result.ok ? result.message : result.error);
+                    router.refresh();
+                  })();
                 });
-
-                if (!result.ok) {
-                  setMessage(result.reason);
-                  return;
-                }
-
-                setLocalSession(result.session);
-                setMessage("Comando enable simulado y sesión activa. Si no hay consumo en 90 segundos se cancelará.");
               }}
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-success/40 bg-success/12 px-4 text-sm font-semibold text-success transition hover:bg-success/20 disabled:cursor-not-allowed disabled:border-muted/20 disabled:bg-muted/10 disabled:text-muted"
             >
               <Zap className="h-4 w-4" aria-hidden="true" />
-              Iniciar carga
+              {isPending ? "Iniciando..." : "Iniciar carga"}
             </button>
           )}
 
@@ -183,6 +193,29 @@ export function MobileOutletDetailScreen({
       </SectionCard>
     </div>
   );
+}
+
+function getOutletRuntimeStatus(
+  outlet: ControlledOutletSummary,
+  session: ChargingSessionSummary | null,
+  isCurrentOutletSession: boolean
+) {
+  if (session && isCurrentOutletSession) {
+    return {
+      label: session.status === "pending_start" ? "Iniciando" : "Cargando",
+      variant: session.status === "pending_start" ? "pending_start" : "active"
+    } as const;
+  }
+
+  if (session && !isCurrentOutletSession) {
+    return { label: "Ocupada", variant: "reserved" } as const;
+  }
+
+  if (outlet.status === "faulted" || outlet.status === "offline") {
+    return { label: "Fuera de servicio", variant: outlet.status } as const;
+  }
+
+  return { label: outlet.status === "available" ? "Disponible" : outlet.statusLabel, variant: outlet.status } as const;
 }
 
 function Mini({ label, value }: { label: string; value: string }) {

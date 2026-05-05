@@ -21,6 +21,7 @@ export default async function ChargerDetailPage({
       charger={data.charger}
       sessions={data.sessions}
       logs={data.logs}
+      commands={data.commands}
       {...(data.currentSession ? { currentSession: data.currentSession } : {})}
     />
   );

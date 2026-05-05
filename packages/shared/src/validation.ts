@@ -4,6 +4,14 @@ export const propertyIdSchema = z.string().min(1);
 
 export const chargerCodeSchema = z.string().min(3).max(64);
 
+export const publicAccessCodeSchema = z
+  .string()
+  .min(3)
+  .max(120)
+  .regex(/^[a-z0-9-]+$/i);
+
+export const recordIdSchema = z.string().uuid();
+
 export const sessionTelemetrySchema = z.object({
   propertyId: propertyIdSchema,
   chargerId: z.string().min(1),

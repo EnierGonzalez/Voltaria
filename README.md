@@ -1,12 +1,13 @@
 # Voltaria
 
-Plataforma SaaS para control y monitoreo de cargadores eléctricos en torres de departamentos.
+Plataforma SaaS para control y monitoreo de puntos de carga en torres de departamentos. El caso principal actual son tomas controladas 120V para carritos de golf eléctricos; OCPP 1.6J se mantiene como compatibilidad futura.
 
 ## Stack
 
 - Monorepo con pnpm workspaces
 - `apps/web`: Next.js App Router, TypeScript, Tailwind y base compatible con shadcn/ui
 - `apps/ocpp-server`: Node.js, TypeScript y `ws` para OCPP 1.6J
+- `apps/outlet-simulator`: runtime simulado para gateway de tomas 120V
 - `packages/db`: Drizzle ORM, schema PostgreSQL y carpeta de migrations
 - `packages/ui`: componentes visuales compartidos
 - `packages/shared`: tipos, constantes, validaciones y datos mock
@@ -72,10 +73,46 @@ Rutas útiles:
 
 - Admin: `http://localhost:3000/dashboard`
 - Cargadores: `http://localhost:3000/chargers`
+- Tomas 120V: `http://localhost:3000/outlets`
 - Residentes: `http://localhost:3000/residents`
 - Sesiones: `http://localhost:3000/sessions`
 - PWA móvil: `http://localhost:3000/mobile/home`
+- PWA tomas: `http://localhost:3000/mobile/outlets`
 - OCPP server: `ws://localhost:9220/ocpp/{chargerId}`
+
+## Simulador de tomas 120V
+
+El simulador procesa `device_commands` pendientes, confirma comandos `enable`/`disable`, mueve sesiones `pending_start` a `active`, genera `meter_values` cada pocos segundos y cierra sesiones al detenerlas. No usa APIs de hardware ni proveedores específicos.
+
+Terminal 1:
+
+```bash
+pnpm dev:web
+```
+
+Terminal 2:
+
+```bash
+pnpm outlet:simulator
+```
+
+Rutas para probar:
+
+- `http://localhost:3000/outlets`
+- `http://localhost:3000/mobile/outlets`
+- `http://localhost:3000/mobile/outlets/aur-toma-01`
+- `http://localhost:3000/mobile/charge`
+- `http://localhost:3000/dashboard`
+
+Prueba manual:
+
+1. Abre `/mobile/outlets/aur-toma-01`.
+2. Presiona `Iniciar carga`.
+3. Verifica que se cree una sesión `pending_start`.
+4. Deja correr `pnpm outlet:simulator` para pasarla a `active`.
+5. Abre `/mobile/charge` y revisa kWh, tiempo, potencia y costo.
+6. Presiona `Detener carga`.
+7. Confirma que el simulador cierre la sesión como `completed`.
 
 ## Auth
 

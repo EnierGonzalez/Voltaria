@@ -1,7 +1,8 @@
 "use client";
 
 import { AlertTriangle, Power, ScrollText, Zap } from "lucide-react";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { SectionCard, StatCard, StatusBadge } from "@voltaria/ui";
 import {
   formatCurrency,
@@ -11,8 +12,10 @@ import {
   formatPower,
   type ChargerSummary,
   type ChargingSessionSummary,
+  type DeviceCommandSummary,
   type OcppLogSummary
 } from "@voltaria/shared";
+import { adminStopOutletSession } from "@/lib/actions/outlet-actions";
 import { ConfirmDialog } from "./confirm-dialog";
 import { EmptyState } from "./empty-state";
 import { SessionTable } from "./session-table";
@@ -21,16 +24,21 @@ export function ChargerDetail({
   charger,
   currentSession,
   sessions,
-  logs
+  logs,
+  commands
 }: {
   charger: ChargerSummary;
   currentSession?: ChargingSessionSummary;
   sessions: ChargingSessionSummary[];
   logs: OcppLogSummary[];
+  commands: DeviceCommandSummary[];
 }) {
-  const [stopped, setStopped] = useState(false);
+  const [stopRequested, setStopRequested] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const canStop = charger.status === "charging" && currentSession && !stopped;
+  const [message, setMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+  const canStop = charger.status === "charging" && currentSession && !stopRequested;
   const isOutlet = charger.kind === "controlled_outlet";
 
   return (
@@ -38,7 +46,7 @@ export function ChargerDetail({
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Estado"
-          value={stopped ? "Detenida" : charger.statusLabel}
+          value={stopRequested ? "Apagado solicitado" : charger.statusLabel}
           delta={charger.code}
           tone={charger.status === "faulted" ? "danger" : charger.status === "charging" ? "success" : "cyan"}
           icon={<Zap className="h-5 w-5" aria-hidden="true" />}
@@ -88,12 +96,13 @@ export function ChargerDetail({
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}
-              className="min-h-9 rounded-md border border-danger/40 bg-danger/12 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20"
+              disabled={isPending}
+              className="min-h-9 rounded-md border border-danger/40 bg-danger/12 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Detener carga
+              {isPending ? "Enviando..." : "Detener carga"}
             </button>
-          ) : currentSession ? (
-            <StatusBadge variant="interrupted">Detenida</StatusBadge>
+          ) : stopRequested ? (
+            <StatusBadge variant="pending">Apagado pendiente</StatusBadge>
           ) : undefined
         }
       >
@@ -103,7 +112,7 @@ export function ChargerDetail({
             <Metric label="Departamento" value={currentSession.apartmentNumber} />
             <Metric label="Energía" value={formatKwh(currentSession.deliveredKwh)} />
             <Metric label="Tiempo" value={formatDuration(currentSession.durationMinutes)} />
-            <Metric label="Potencia" value={formatPower(stopped ? 0 : currentSession.powerKw)} />
+            <Metric label="Potencia" value={formatPower(currentSession.powerKw)} />
             <Metric label="Costo" value={formatCurrency(currentSession.costAmount)} />
             <Metric label="Tarifa" value={`${formatCurrency(currentSession.ratePerKwh)} / kWh`} />
             <Metric label={isOutlet ? "Toma" : "Conector"} value={isOutlet ? charger.code : currentSession.connectorNumber.toString()} />
@@ -111,11 +120,16 @@ export function ChargerDetail({
         ) : (
           <EmptyState title="Sin sesión activa" description="Este punto de carga no tiene una sesión activa." />
         )}
+        {message ? (
+          <div className="mt-4 rounded-md border border-border bg-panel/70 p-3 text-sm leading-6 text-muted">
+            {message}
+          </div>
+        ) : null}
       </SectionCard>
 
       <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-        <SectionCard title={isOutlet ? "Últimos eventos" : "Últimos mensajes OCPP"} description={isOutlet ? "Comandos y eventos simulados" : "Mensajes crudos resumidos para auditoría"}>
-          <OcppLogList logs={logs} />
+        <SectionCard title={isOutlet ? "Últimos comandos" : "Últimos mensajes OCPP"} description={isOutlet ? "Historial de enable/disable del simulador" : "Mensajes crudos resumidos para auditoría"}>
+          {isOutlet ? <CommandHistory commands={commands} /> : <OcppLogList logs={logs} />}
         </SectionCard>
 
         <SectionCard title="Historial reciente" description="Sesiones asociadas a este punto">
@@ -126,16 +140,67 @@ export function ChargerDetail({
       <ConfirmDialog
         open={confirmOpen}
         title="Detener carga"
-        description="Esta acción es mock por ahora. La UI marcará la sesión como detenida sin persistir cambios."
+        description="Se creará un comando disable. El simulador cerrará la sesión cuando confirme el apagado."
         confirmLabel="Detener"
         onConfirm={() => {
-          setStopped(true);
-          setConfirmOpen(false);
+          if (!currentSession) {
+            setConfirmOpen(false);
+            return;
+          }
+
+          startTransition(() => {
+            void (async () => {
+              const result = await adminStopOutletSession(currentSession.id);
+              setMessage(result.ok ? result.message : result.error);
+              setStopRequested(result.ok);
+              setConfirmOpen(false);
+              router.refresh();
+            })();
+          });
         }}
         onClose={() => setConfirmOpen(false)}
       />
     </div>
   );
+}
+
+function CommandHistory({ commands }: { commands: DeviceCommandSummary[] }) {
+  if (commands.length === 0) {
+    return <EmptyState title="Sin comandos" description="Todavía no hay comandos registrados para esta toma." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {commands.map((command) => (
+        <div key={command.id} className="min-w-0 rounded-lg border border-border bg-panel2/58 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">{command.commandType}</p>
+              <p className="mt-1 truncate text-xs text-muted">
+                {command.requestedBy ?? "system"} · {formatDateTime(command.createdAt)}
+              </p>
+            </div>
+            <StatusBadge variant={commandStatusVariant(command.status)}>{command.status}</StatusBadge>
+          </div>
+          {command.acknowledgedAt ? (
+            <p className="mt-2 text-xs text-muted">ACK {formatDateTime(command.acknowledgedAt)}</p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function commandStatusVariant(status: DeviceCommandSummary["status"]) {
+  if (status === "acknowledged") {
+    return "acknowledged";
+  }
+
+  if (status === "failed" || status === "timeout") {
+    return "failed";
+  }
+
+  return "pending";
 }
 
 function OcppLogList({ logs }: { logs: OcppLogSummary[] }) {

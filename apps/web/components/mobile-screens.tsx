@@ -7,10 +7,12 @@ import {
   KeyRound,
   LineChart,
   PlugZap,
+  RefreshCw,
   ShieldCheck,
   Zap
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { SectionCard, StatusBadge } from "@voltaria/ui";
 import {
   formatCurrency,
@@ -24,6 +26,8 @@ import {
   mobileWeeklyStatsSeries,
   type MobileAccessSummary
 } from "@voltaria/shared";
+import { stopMobileOutletSession } from "@/lib/actions/outlet-actions";
+import type { MobileChargeData } from "@/lib/data";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ConsumptionChart } from "./consumption-chart";
 import { MobileMetricCard } from "./mobile-metric-card";
@@ -69,16 +73,61 @@ export function MobileHomeScreen() {
   );
 }
 
-export function MobileChargeScreen() {
+export function MobileChargeScreen({ data }: { data?: MobileChargeData }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+  const session = data ? data.session : activeSession;
+  const hasDbSession = Boolean(data?.session);
+
+  useEffect(() => {
+    if (!data?.session || stopped) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      router.refresh();
+    }, 15_000);
+
+    return () => window.clearInterval(timer);
+  }, [data?.session, router, stopped]);
+
+  if (!session) {
+    return (
+      <div className="space-y-5">
+        <SectionCard title="My Charge" description="Sin sesión activa">
+          <div className="rounded-lg border border-border bg-panel2/64 p-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-cyan">
+                <PlugZap className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">No tienes una carga activa.</p>
+                <p className="mt-1 text-sm leading-5 text-muted">
+                  Selecciona una toma 120V disponible para iniciar una sesión.
+                </p>
+              </div>
+            </div>
+          </div>
+          <a
+            href="/mobile/outlets"
+            className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-cyan/40 bg-cyan/12 px-4 text-sm font-semibold text-cyan transition hover:bg-cyan/20"
+          >
+            Ver tomas disponibles
+          </a>
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <SectionCard
         title="My Charge"
-        description={`${activeSession.chargerCode} · ${activeSession.chargerLocation}`}
-        action={<StatusBadge variant={stopped ? "interrupted" : activeSession.status}>{stopped ? "Detenida" : activeSession.statusLabel}</StatusBadge>}
+        description={`${session.chargerCode} · ${session.chargerLocation}`}
+        action={<StatusBadge variant={stopped ? "interrupted" : session.status}>{stopped ? "Detenida" : session.statusLabel}</StatusBadge>}
       >
         <div className="space-y-3">
           <div className="rounded-lg border border-border bg-panel2/64 p-4">
@@ -88,28 +137,44 @@ export function MobileChargeScreen() {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm text-muted">Sesión actual</p>
-                <p className="truncate font-semibold text-foreground">{activeSession.chargerCode}</p>
+                <p className="truncate font-semibold text-foreground">{session.chargerCode}</p>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <MobileMetricCard label="Energía entregada" value={formatKwh(activeSession.deliveredKwh)} />
-            <MobileMetricCard label="Tiempo transcurrido" value={formatDuration(activeSession.durationMinutes)} />
-            <MobileMetricCard label="Potencia actual" value={formatPower(stopped ? 0 : activeSession.powerKw)} />
-            <MobileMetricCard label="Costo estimado" value={formatCurrency(activeSession.costAmount)} />
-            <MobileMetricCard label="Tarifa" value={`${formatCurrency(activeSession.ratePerKwh)} / kWh`} className="col-span-2" />
-            <MobileMetricCard label="Ubicación" value={activeSession.chargerLocation} className="col-span-2" />
+            <MobileMetricCard label="Energía entregada" value={formatKwh(session.deliveredKwh)} />
+            <MobileMetricCard label="Tiempo transcurrido" value={formatDuration(session.durationMinutes)} />
+            <MobileMetricCard label="Potencia actual" value={formatPower(stopped ? 0 : session.powerKw)} />
+            <MobileMetricCard label="Costo estimado" value={formatCurrency(session.costAmount)} />
+            <MobileMetricCard label="Tarifa" value={`${formatCurrency(session.ratePerKwh)} / kWh`} className="col-span-2" />
+            <MobileMetricCard label="Ubicación" value={session.chargerLocation} className="col-span-2" />
           </div>
 
-          {!stopped ? (
+          <button
+            type="button"
+            onClick={() => router.refresh()}
+            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-border bg-panel2 px-4 text-sm font-semibold text-foreground transition hover:border-cyan/50 hover:text-cyan"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Actualizar
+          </button>
+
+          {!stopped && (session.status === "active" || session.status === "pending_start") ? (
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}
-              className="min-h-11 w-full rounded-md border border-danger/40 bg-danger/12 px-4 text-sm font-semibold text-danger transition hover:bg-danger/20"
+              disabled={isPending}
+              className="min-h-11 w-full rounded-md border border-danger/40 bg-danger/12 px-4 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Detener carga
+              {isPending ? "Enviando comando..." : "Detener carga"}
             </button>
+          ) : null}
+
+          {message ? (
+            <div className="rounded-md border border-border bg-panel/70 p-3 text-sm leading-6 text-muted">
+              {message}
+            </div>
           ) : null}
         </div>
       </SectionCard>
@@ -117,11 +182,27 @@ export function MobileChargeScreen() {
       <ConfirmDialog
         open={confirmOpen}
         title="Detener carga"
-        description="Esta confirmación es mock. La sesión cambiará a detenida solo en esta pantalla."
+        description={
+          hasDbSession
+            ? "Se creará un comando disable y el simulador cerrará la sesión cuando lo confirme."
+            : "Esta confirmación es mock. La sesión cambiará a detenida solo en esta pantalla."
+        }
         confirmLabel="Detener"
         onConfirm={() => {
-          setStopped(true);
-          setConfirmOpen(false);
+          if (!hasDbSession) {
+            setStopped(true);
+            setConfirmOpen(false);
+            return;
+          }
+
+          startTransition(() => {
+            void (async () => {
+              const result = await stopMobileOutletSession(session.id);
+              setMessage(result.ok ? result.message : result.error);
+              setConfirmOpen(false);
+              router.refresh();
+            })();
+          });
         }}
         onClose={() => setConfirmOpen(false)}
       />
