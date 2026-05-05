@@ -8,6 +8,7 @@ import {
   FileText,
   LayoutDashboard,
   PlugZap,
+  RadioTower,
   Settings,
   TriangleAlert,
   UsersRound,
@@ -27,6 +28,7 @@ const navItems = [
   { label: "Consumption", href: "/consumption", icon: ChartSpline },
   { label: "Alerts", href: "/alerts", icon: TriangleAlert, badge: "3" },
   { label: "Reports", href: "/reports", icon: FileText },
+  { label: "RFID Sim", href: "/rfid-simulator", icon: RadioTower },
   { label: "Settings", href: "/settings", icon: Settings }
 ];
 
@@ -40,6 +42,7 @@ const titleByPath: Record<string, string> = {
   "/consumption": "Consumption",
   "/alerts": "Alerts",
   "/reports": "Reports",
+  "/rfid-simulator": "RFID Simulator",
   "/settings": "Settings"
 };
 

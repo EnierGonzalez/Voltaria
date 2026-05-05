@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   billingRecords as mockBillingRecords,
   chargingPoints,
@@ -13,7 +13,9 @@ import {
 } from "@voltaria/shared";
 import { createDbClient } from "./client";
 import { loadDatabaseEnv } from "./load-env";
+import { hashRfidTag, maskRfidTag } from "./rfid-utils";
 import {
+  accessDevices,
   alerts,
   apartments,
   billingRecords,
@@ -60,9 +62,18 @@ async function seed() {
     .limit(1);
 
   if (existingProperty) {
-    await db.delete(ocppMessages).where(eq(ocppMessages.propertyId, existingProperty.id));
-    await db.delete(systemEvents).where(eq(systemEvents.propertyId, existingProperty.id));
-    await db.delete(properties).where(eq(properties.id, existingProperty.id));
+    const [property] = await db
+      .update(properties)
+      .set({ ...propertySeed, updatedAt: new Date() })
+      .where(eq(properties.id, existingProperty.id))
+      .returning();
+
+    if (!property) {
+      throw new Error("Seed failed while updating property.");
+    }
+
+    await ensureRfidSeed(property.id);
+    return;
   }
 
   const [property] = await db.insert(properties).values(propertySeed).returning();
@@ -100,6 +111,7 @@ async function seed() {
 
   await db.insert(residentCredentials).values(
     residentRows.map((resident) => ({
+      propertyId: property.id,
       residentId: resident.id,
       providerKey: "local",
       providerSubject: resident.email,
@@ -114,15 +126,49 @@ async function seed() {
   const primaryResident = residentsByName.get("María López") ?? residentRows[0];
 
   if (primaryResident) {
+    const demoRfidTag = "RFID-DEMO-1204";
+    const hashedValue = hashRfidTag(demoRfidTag);
+    const maskedValue = maskRfidTag(demoRfidTag);
+
     await db.insert(residentCredentials).values({
+      propertyId: property.id,
       residentId: primaryResident.id,
-      providerKey: "local-rfid",
-      providerSubject: "rfid:torre-aurora:1204:primary",
+      providerKey: "rfid",
+      providerSubject: `rfid:${hashedValue}`,
       credentialType: "rfid",
-      passwordHash: "dev-only-rfid-hash-not-a-real-token",
+      label: "Tarjeta principal",
+      hashedValue,
+      maskedValue,
+      status: "active",
       metadata: {
         label: "Tarjeta RFID principal",
-        maskedValue: "****A91F",
+        maskedValue,
+        status: "active",
+        seeded: true
+      }
+    });
+  }
+
+  const carlosResident = residentsByName.get("Carlos Méndez");
+
+  if (carlosResident) {
+    const demoRfidTag = "RFID-DEMO-0802";
+    const hashedValue = hashRfidTag(demoRfidTag);
+    const maskedValue = maskRfidTag(demoRfidTag);
+
+    await db.insert(residentCredentials).values({
+      propertyId: property.id,
+      residentId: carlosResident.id,
+      providerKey: "rfid",
+      providerSubject: `rfid:${hashedValue}`,
+      credentialType: "rfid",
+      label: "Tarjeta secundaria",
+      hashedValue,
+      maskedValue,
+      status: "active",
+      metadata: {
+        label: "Tarjeta secundaria",
+        maskedValue,
         status: "active",
         seeded: true
       }
@@ -154,6 +200,19 @@ async function seed() {
     .returning();
 
   const chargersByCode = new Map(chargerRows.map((charger) => [charger.ocppIdentity, charger]));
+  const linkedOutlet = chargersByCode.get("AUR-TOMA-01");
+
+  await db.insert(accessDevices).values({
+    propertyId: property.id,
+    code: "RFID-PANEL-P1",
+    name: "Panel RFID Nivel P1",
+    kind: "rfid_kiosk",
+    locationLabel: "Nivel P1",
+    linkedOutletId: linkedOutlet?.id,
+    status: "online",
+    lastSeenAt: new Date(),
+    metadata: { simulated: true, seeded: true }
+  });
 
   const connectorRows = await db
     .insert(chargerConnectors)
@@ -401,6 +460,111 @@ async function seed() {
         ];
       })
   );
+}
+
+async function ensureRfidSeed(propertyId: string) {
+  const [outlet] = await db
+    .select()
+    .from(chargers)
+    .where(and(eq(chargers.propertyId, propertyId), eq(chargers.ocppIdentity, "AUR-TOMA-01")))
+    .limit(1);
+
+  const [reader] = await db
+    .select()
+    .from(accessDevices)
+    .where(and(eq(accessDevices.propertyId, propertyId), eq(accessDevices.code, "RFID-PANEL-P1")))
+    .limit(1);
+
+  if (reader) {
+    await db
+      .update(accessDevices)
+      .set({
+        name: "Panel RFID Nivel P1",
+        kind: "rfid_kiosk",
+        locationLabel: "Nivel P1",
+        linkedOutletId: outlet?.id,
+        status: "online",
+        updatedAt: new Date()
+      })
+      .where(eq(accessDevices.id, reader.id));
+  } else {
+    await db.insert(accessDevices).values({
+      propertyId,
+      code: "RFID-PANEL-P1",
+      name: "Panel RFID Nivel P1",
+      kind: "rfid_kiosk",
+      locationLabel: "Nivel P1",
+      linkedOutletId: outlet?.id,
+      status: "online",
+      lastSeenAt: new Date(),
+      metadata: { simulated: true, seeded: true }
+    });
+  }
+
+  await ensureDemoRfidCredential(propertyId, "María López", "RFID-DEMO-1204", "Tarjeta principal");
+  await ensureDemoRfidCredential(propertyId, "Carlos Méndez", "RFID-DEMO-0802", "Tarjeta secundaria");
+}
+
+async function ensureDemoRfidCredential(
+  propertyId: string,
+  residentName: string,
+  rawIdTag: string,
+  label: string
+) {
+  const [resident] = await db
+    .select()
+    .from(residents)
+    .where(and(eq(residents.propertyId, propertyId), eq(residents.fullName, residentName)))
+    .limit(1);
+
+  if (!resident) {
+    return;
+  }
+
+  const hashedValue = hashRfidTag(rawIdTag);
+  const maskedValue = maskRfidTag(rawIdTag);
+  const providerSubject = `rfid:${hashedValue}`;
+  const [credential] = await db
+    .select()
+    .from(residentCredentials)
+    .where(
+      and(
+        eq(residentCredentials.providerKey, "rfid"),
+        eq(residentCredentials.providerSubject, providerSubject)
+      )
+    )
+    .limit(1);
+
+  if (credential) {
+    await db
+      .update(residentCredentials)
+      .set({
+        propertyId,
+        residentId: resident.id,
+        credentialType: "rfid",
+        label,
+        hashedValue,
+        maskedValue,
+        status: "active",
+        updatedAt: new Date(),
+        metadata: { label, maskedValue, status: "active", seeded: true }
+      })
+      .where(eq(residentCredentials.id, credential.id));
+    return;
+  }
+
+  await db.insert(residentCredentials).values({
+    propertyId,
+    residentId: resident.id,
+    providerKey: "rfid",
+    providerSubject,
+    credentialType: "rfid",
+    label,
+    hashedValue,
+    maskedValue,
+    status: "active",
+    metadata: { label, maskedValue, status: "active", seeded: true }
+  });
 }
 
 function connectorStatusFor(status: (typeof chargingPoints)[number]["status"]) {

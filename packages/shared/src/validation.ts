@@ -12,6 +12,24 @@ export const publicAccessCodeSchema = z
 
 export const recordIdSchema = z.string().uuid();
 
+export const rfidTagSchema = z
+  .string()
+  .trim()
+  .min(4)
+  .max(80)
+  .regex(/^[A-Za-z0-9:_\-\s]+$/);
+
+export const rfidReaderEventSchema = z.object({
+  readerCode: z.string().trim().min(3).max(120),
+  outletPublicCode: publicAccessCodeSchema.optional(),
+  outletId: recordIdSchema.optional(),
+  idTag: rfidTagSchema
+});
+
+export const credentialLabelSchema = z.string().trim().min(1).max(120);
+
+export const credentialDisableReasonSchema = z.string().trim().min(2).max(160);
+
 export const sessionTelemetrySchema = z.object({
   propertyId: propertyIdSchema,
   chargerId: z.string().min(1),
@@ -32,3 +50,5 @@ export const residentAccessSchema = z.object({
 export type SessionTelemetryInput = z.infer<typeof sessionTelemetrySchema>;
 
 export type ResidentAccessInput = z.infer<typeof residentAccessSchema>;
+
+export type RfidReaderEventInput = z.infer<typeof rfidReaderEventSchema>;

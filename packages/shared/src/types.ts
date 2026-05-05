@@ -22,6 +22,34 @@ export type AccessStatus = "success" | "warning";
 
 export type RfidCredentialStatus = "active" | "suspended";
 
+export type CredentialType = "rfid" | "qr" | "pin";
+
+export type CredentialStatus =
+  | "active"
+  | "disabled"
+  | "lost"
+  | "stolen"
+  | "damaged"
+  | "replaced"
+  | "expired"
+  | "pending_enrollment";
+
+export type CredentialEnrollmentMode = "assign" | "replace";
+
+export type CredentialEnrollmentStatus =
+  | "waiting"
+  | "captured"
+  | "expired"
+  | "cancelled"
+  | "failed";
+
+export type AuthorizationAttemptResult =
+  | "accepted"
+  | "rejected"
+  | "captured"
+  | "expired"
+  | "blocked";
+
 export type MobileAccessStatus = "active" | "missing" | "suspended";
 
 export type PropertySummary = {
@@ -193,6 +221,37 @@ export type DeviceCommandSummary = {
   requestedBy?: string;
   createdAt: string;
   acknowledgedAt?: string;
+};
+
+export type RfidCredentialSummary = {
+  id: string;
+  propertyId: PropertyId;
+  residentId: string;
+  label: string;
+  maskedValue: string;
+  credentialType: CredentialType;
+  status: CredentialStatus;
+  statusLabel: string;
+  createdAt: string;
+  lastUsedAt?: string;
+};
+
+export type CredentialEventSummary = {
+  id: string;
+  action: string;
+  reason?: string;
+  performedBy?: string;
+  createdAt: string;
+};
+
+export type AccessDeviceSummary = {
+  id: string;
+  propertyId: PropertyId;
+  code: string;
+  name: string;
+  kind: "rfid_reader" | "rfid_kiosk" | "mobile_app" | "admin_panel";
+  status: "online" | "offline" | "disabled";
+  locationLabel?: string;
 };
 
 export type SessionEventSummary = {

@@ -114,6 +114,59 @@ Prueba manual:
 6. Presiona `Detener carga`.
 7. Confirma que el simulador cierre la sesión como `completed`.
 
+## RFID Local Testing
+
+Terminal 1:
+
+```bash
+pnpm dev:web
+```
+
+Terminal 2:
+
+```bash
+pnpm outlet:simulator
+```
+
+Opcional:
+
+```bash
+pnpm db:studio
+```
+
+Prueba 1 - asignar manual:
+
+1. Abre `/residents`.
+2. Entra a María López.
+3. Asigna `RFID-DEMO-1204` como RFID manual.
+4. Verifica que solo se muestre el valor enmascarado.
+
+Prueba 2 - simular tap RFID:
+
+1. Abre `/rfid-simulator`.
+2. Selecciona `RFID-PANEL-P1`.
+3. Selecciona `AUR-TOMA-01`.
+4. Usa `RFID-DEMO-1204`.
+5. Presiona `Simular tap`.
+6. Revisa el resultado `accepted`, `rejected`, `captured` o `blocked`.
+7. Abre `/mobile/charge` para ver kWh, tiempo, potencia y costo cuando haya sesión activa.
+
+Prueba 3 - detener:
+
+1. Desde `/mobile/charge`, presiona `Detener carga`.
+2. También puedes simular un segundo tap RFID sobre la misma toma y sesión propia.
+3. El simulador procesará el comando `disable` y cerrará la sesión.
+
+Prueba 4 - enrollment:
+
+1. Abre el detalle de un residente.
+2. Inicia `Captura desde lector`.
+3. Abre `/rfid-simulator`.
+4. Simula un tap con un idTag nuevo, por ejemplo `RFID-NUEVA-001`.
+5. Verifica que el enrollment cambie a `captured` y que aparezca una credencial activa.
+
+RFID usa `RFID_HASH_SECRET` para HMAC-SHA256. En desarrollo puede usar fallback local si no está configurado, pero producción debe definirlo. La UI nunca muestra el idTag completo ni el hash.
+
 ## Auth
 
 La capa de auth está modelada sin acoplarse a Neon, Supabase ni otro proveedor. `resident_credentials` guarda identidad externa de forma genérica y `packages/shared/src/auth.ts` define contratos para conectar un proveedor real después.

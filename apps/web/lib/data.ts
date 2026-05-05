@@ -4,6 +4,7 @@ import {
   getBillingRecords,
   getChargers,
   getChargerById,
+  getAccessDeviceSummaries,
   getControlledOutletByPublicCode,
   getControlledOutlets,
   getConsumptionSeries,
@@ -11,13 +12,17 @@ import {
   getDefaultProperty,
   getCurrentDemoResident,
   getDeviceCommandsForCharger,
+  getCredentialEventsForResident,
   getMeterValueSeries,
   getOcppLogs,
   getRecentSessions,
+  getResidentById,
+  getResidentCredentialSummaries,
   getResidentRfidCredential,
   getResidents,
   getSessionById,
-  getTariffs
+  getTariffs,
+  loadDatabaseEnv
 } from "@voltaria/db";
 import {
   billingRecords,
@@ -37,19 +42,24 @@ import {
   towerOutlets,
   weeklyConsumptionSeries,
   type AlertSummary,
+  type AccessDeviceSummary,
   type BillingRecordSummary,
   type ChargerSummary,
   type ChargingSessionSummary,
   type ControlledOutletSummary,
   type ConsumptionPoint,
+  type CredentialEventSummary,
   type DeviceCommandSummary,
   type MeterValuePoint,
   type MobileAccessSummary,
   type OcppLogSummary,
   type ResidentSummary,
+  type RfidCredentialSummary,
   type SessionEventSummary,
   type TariffSummary
 } from "@voltaria/shared";
+
+loadDatabaseEnv();
 
 export type DashboardPageData = {
   dashboardStats: typeof dashboardStats;
@@ -100,6 +110,19 @@ export type MobileChargeData = {
   session: ChargingSessionSummary | null;
 };
 
+export type ResidentDetailPageData = {
+  resident: ResidentSummary | null;
+  sessions: ChargingSessionSummary[];
+  credentials: RfidCredentialSummary[];
+  credentialEvents: CredentialEventSummary[];
+  accessDevices: AccessDeviceSummary[];
+};
+
+export type RfidSimulatorPageData = {
+  accessDevices: AccessDeviceSummary[];
+  outlets: ControlledOutletSummary[];
+};
+
 const mockDashboardData: DashboardPageData = {
   dashboardStats,
   chargers: chargingPoints,
@@ -129,6 +152,18 @@ const mockOutletsData: OutletsPageData = {
   residents,
   tariffs
 };
+
+const mockAccessDevices: AccessDeviceSummary[] = [
+  {
+    id: "access_device_rfid_panel_p1",
+    propertyId: "prop_aurora",
+    code: "RFID-PANEL-P1",
+    name: "Panel RFID Nivel P1",
+    kind: "rfid_kiosk",
+    status: "online",
+    locationLabel: "Nivel P1"
+  }
+];
 
 export async function getDashboardPageData(): Promise<DashboardPageData> {
   return withDatabaseFallback(mockDashboardData, async ({ db }) => {
@@ -302,6 +337,70 @@ export async function getSessionDetailPageData(sessionId: string): Promise<Sessi
         events: [],
         meterValues: await getMeterValueSeries(db, session.id),
         logs: await getOcppLogs(db, { chargerId: session.chargerId, sessionId: session.id })
+      };
+    }
+  );
+}
+
+export async function getResidentDetailPageData(residentId: string): Promise<ResidentDetailPageData> {
+  const mockResident = residents.find((resident) => resident.id === residentId) ?? null;
+  const mockResidentSessions = mockResident
+    ? recentSessions.filter((session) => session.residentName === mockResident.name)
+    : [];
+
+  return withDatabaseFallback(
+    {
+      resident: mockResident,
+      sessions: mockResidentSessions,
+      credentials: [],
+      credentialEvents: [],
+      accessDevices: mockAccessDevices
+    },
+    async ({ db }) => {
+      const resident = await getResidentById(db, residentId);
+
+      if (!resident) {
+        return {
+          resident: mockResident,
+          sessions: mockResidentSessions,
+          credentials: [],
+          credentialEvents: [],
+          accessDevices: mockAccessDevices
+        };
+      }
+
+      const sessions = await getRecentSessions(db, resident.propertyId, 80);
+
+      return {
+        resident,
+        sessions: sessions.filter((session) => session.residentName === resident.name),
+        credentials: await getResidentCredentialSummaries(db, resident.id),
+        credentialEvents: await getCredentialEventsForResident(db, resident.id),
+        accessDevices: await getAccessDeviceSummaries(db, resident.propertyId)
+      };
+    }
+  );
+}
+
+export async function getRfidSimulatorPageData(): Promise<RfidSimulatorPageData> {
+  return withDatabaseFallback<RfidSimulatorPageData>(
+    {
+      accessDevices: mockAccessDevices,
+      outlets: towerOutlets
+    },
+    async ({ db }) => {
+      const property = await getDefaultProperty(db);
+
+      if (!property) {
+        return {
+          accessDevices: mockAccessDevices,
+          outlets: towerOutlets
+        };
+      }
+
+      return {
+        accessDevices: await getAccessDeviceSummaries(db, property.id),
+        outlets: await getControlledOutlets(db, property.id)
       };
     }
   );

@@ -357,7 +357,9 @@ function ResidentsModule({ residents }: { residents: ResidentSummary[] }) {
       <DataTable
         headers={["Nombre", "Departamento", "Email", "Acceso", "Sesiones", "Consumo mensual"]}
         rows={residents.map((resident) => [
-          resident.name,
+          <a key={resident.id} href={`/residents/${resident.id}`} className="font-semibold text-foreground transition hover:text-cyan">
+            {resident.name}
+          </a>,
           resident.apartmentNumber,
           resident.email,
           <StatusBadge key={resident.id} variant={resident.accessStatus}>
@@ -466,6 +468,9 @@ function SettingsModule() {
         <SettingItem icon={<Gauge className="h-5 w-5" aria-hidden="true" />} title="OCPP" value="Servidor separado y mensajes raw auditables" />
         <SettingItem icon={<CreditCard className="h-5 w-5" aria-hidden="true" />} title="Tarifas" value="Modelo por propiedad, vigencia y moneda" />
         <SettingItem icon={<CalendarDays className="h-5 w-5" aria-hidden="true" />} title="Migración futura" value="Auth y DB sin acoplarse a Supabase" />
+        <a href="/rfid-simulator">
+          <SettingItem icon={<Zap className="h-5 w-5" aria-hidden="true" />} title="RFID Simulator" value="Herramienta dev para taps RFID simulados" />
+        </a>
       </div>
     </SectionCard>
   );

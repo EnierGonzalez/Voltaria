@@ -5,11 +5,14 @@ import {
   adminDisableOutlet as dbAdminDisableOutlet,
   adminEnableOutlet as dbAdminEnableOutlet,
   createDbClient,
+  loadDatabaseEnv,
   requestStopOutletSession,
   startMobileOutletSession as dbStartMobileOutletSession,
   type RuntimeResult
 } from "@voltaria/db";
 import { publicAccessCodeSchema, recordIdSchema } from "@voltaria/shared";
+
+loadDatabaseEnv();
 
 type OutletActionResult = RuntimeResult;
 

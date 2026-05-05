@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -82,6 +83,51 @@ export const systemEventSeverityEnum = pgEnum("system_event_severity", [
   "critical"
 ]);
 
+export const credentialStatusEnum = pgEnum("credential_status", [
+  "active",
+  "disabled",
+  "lost",
+  "stolen",
+  "damaged",
+  "replaced",
+  "expired",
+  "pending_enrollment"
+]);
+
+export const credentialEnrollmentModeEnum = pgEnum("credential_enrollment_mode", [
+  "assign",
+  "replace"
+]);
+
+export const credentialEnrollmentStatusEnum = pgEnum("credential_enrollment_status", [
+  "waiting",
+  "captured",
+  "expired",
+  "cancelled",
+  "failed"
+]);
+
+export const accessDeviceKindEnum = pgEnum("access_device_kind", [
+  "rfid_reader",
+  "rfid_kiosk",
+  "mobile_app",
+  "admin_panel"
+]);
+
+export const accessDeviceStatusEnum = pgEnum("access_device_status", [
+  "online",
+  "offline",
+  "disabled"
+]);
+
+export const authorizationAttemptResultEnum = pgEnum("authorization_attempt_result", [
+  "accepted",
+  "rejected",
+  "captured",
+  "expired",
+  "blocked"
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
@@ -142,13 +188,26 @@ export const residentCredentials = pgTable(
   "resident_credentials",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
     residentId: uuid("resident_id")
       .references(() => residents.id, { onDelete: "cascade" })
       .notNull(),
     providerKey: varchar("provider_key", { length: 80 }).notNull(),
     providerSubject: varchar("provider_subject", { length: 220 }).notNull(),
     credentialType: varchar("credential_type", { length: 80 }).default("passwordless").notNull(),
+    label: varchar("label", { length: 120 }),
+    hashedValue: text("hashed_value"),
+    maskedValue: varchar("masked_value", { length: 80 }),
+    status: credentialStatusEnum("status").default("active").notNull(),
     passwordHash: text("password_hash"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    replacedByCredentialId: uuid("replaced_by_credential_id").references(
+      (): AnyPgColumn => residentCredentials.id,
+      { onDelete: "set null" }
+    ),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     ...timestamps
@@ -158,7 +217,23 @@ export const residentCredentials = pgTable(
       table.providerKey,
       table.providerSubject
     ),
-    residentIdx: index("resident_credentials_resident_idx").on(table.residentId)
+    residentIdx: index("resident_credentials_resident_idx").on(table.residentId),
+    propertyResidentIdx: index("resident_credentials_property_resident_idx").on(
+      table.propertyId,
+      table.residentId
+    ),
+    propertyTypeStatusIdx: index("resident_credentials_property_type_status_idx").on(
+      table.propertyId,
+      table.credentialType,
+      table.status
+    ),
+    propertyHashedIdx: index("resident_credentials_property_hashed_idx").on(
+      table.propertyId,
+      table.hashedValue
+    ),
+    activeRfidHashIdx: uniqueIndex("resident_credentials_active_rfid_hash_idx")
+      .on(table.propertyId, table.hashedValue)
+      .where(sql`${table.credentialType} = 'rfid' and ${table.status} = 'active'`)
   })
 );
 
@@ -289,6 +364,129 @@ export const deviceCommands = pgTable(
       table.chargerId,
       table.createdAt
     )
+  })
+);
+
+export const accessDevices = pgTable(
+  "access_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    code: varchar("code", { length: 120 }).notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    kind: accessDeviceKindEnum("kind").notNull(),
+    locationLabel: varchar("location_label", { length: 160 }),
+    linkedOutletId: uuid("linked_outlet_id").references(() => chargers.id, { onDelete: "set null" }),
+    status: accessDeviceStatusEnum("status").default("offline").notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    propertyCodeIdx: uniqueIndex("access_devices_property_code_idx").on(
+      table.propertyId,
+      table.code
+    ),
+    propertyStatusIdx: index("access_devices_property_status_idx").on(table.propertyId, table.status)
+  })
+);
+
+export const credentialEnrollmentSessions = pgTable(
+  "credential_enrollment_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id")
+      .references(() => residents.id, { onDelete: "cascade" })
+      .notNull(),
+    oldCredentialId: uuid("old_credential_id").references(() => residentCredentials.id, {
+      onDelete: "set null"
+    }),
+    accessDeviceId: uuid("access_device_id").references(() => accessDevices.id, {
+      onDelete: "set null"
+    }),
+    outletId: uuid("outlet_id").references(() => chargers.id, { onDelete: "set null" }),
+    mode: credentialEnrollmentModeEnum("mode").notNull(),
+    status: credentialEnrollmentStatusEnum("status").default("waiting").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    capturedMaskedValue: varchar("captured_masked_value", { length: 80 }),
+    createdBy: varchar("created_by", { length: 120 }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    propertyStatusExpiresIdx: index("credential_enrollments_property_status_expires_idx").on(
+      table.propertyId,
+      table.status,
+      table.expiresAt
+    ),
+    residentIdx: index("credential_enrollments_resident_idx").on(table.residentId)
+  })
+);
+
+export const credentialEvents = pgTable(
+  "credential_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    credentialId: uuid("credential_id").references(() => residentCredentials.id, {
+      onDelete: "set null"
+    }),
+    enrollmentId: uuid("enrollment_id").references(() => credentialEnrollmentSessions.id, {
+      onDelete: "set null"
+    }),
+    action: varchar("action", { length: 120 }).notNull(),
+    reason: varchar("reason", { length: 160 }),
+    performedBy: varchar("performed_by", { length: 120 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    propertyCreatedIdx: index("credential_events_property_created_idx").on(
+      table.propertyId,
+      table.createdAt
+    ),
+    credentialIdx: index("credential_events_credential_idx").on(table.credentialId),
+    residentIdx: index("credential_events_resident_idx").on(table.residentId)
+  })
+);
+
+export const authorizationAttempts = pgTable(
+  "authorization_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    credentialId: uuid("credential_id").references(() => residentCredentials.id, {
+      onDelete: "set null"
+    }),
+    accessDeviceId: uuid("access_device_id").references(() => accessDevices.id, {
+      onDelete: "set null"
+    }),
+    chargerId: uuid("charger_id").references(() => chargers.id, { onDelete: "set null" }),
+    method: activationMethodEnum("method").notNull(),
+    result: authorizationAttemptResultEnum("result").notNull(),
+    reason: varchar("reason", { length: 160 }),
+    maskedValue: varchar("masked_value", { length: 80 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    propertyCreatedIdx: index("authorization_attempts_property_created_idx").on(
+      table.propertyId,
+      table.createdAt
+    ),
+    credentialIdx: index("authorization_attempts_credential_idx").on(table.credentialId)
   })
 );
 
@@ -458,7 +656,11 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   residents: many(residents),
   chargers: many(chargers),
   tariffs: many(tariffs),
-  deviceCommands: many(deviceCommands)
+  deviceCommands: many(deviceCommands),
+  accessDevices: many(accessDevices),
+  credentialEnrollments: many(credentialEnrollmentSessions),
+  credentialEvents: many(credentialEvents),
+  authorizationAttempts: many(authorizationAttempts)
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -481,8 +683,32 @@ export const residentsRelations = relations(residents, ({ one, many }) => ({
     references: [apartments.id]
   }),
   credentials: many(residentCredentials),
+  credentialEnrollments: many(credentialEnrollmentSessions),
+  credentialEvents: many(credentialEvents),
+  authorizationAttempts: many(authorizationAttempts),
   sessions: many(chargingSessions),
   billingRecords: many(billingRecords)
+}));
+
+export const residentCredentialsRelations = relations(residentCredentials, ({ one, many }) => ({
+  property: one(properties, {
+    fields: [residentCredentials.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [residentCredentials.residentId],
+    references: [residents.id]
+  }),
+  replacedByCredential: one(residentCredentials, {
+    fields: [residentCredentials.replacedByCredentialId],
+    references: [residentCredentials.id],
+    relationName: "credentialReplacement"
+  }),
+  replacingCredentials: many(residentCredentials, {
+    relationName: "credentialReplacement"
+  }),
+  events: many(credentialEvents),
+  authorizationAttempts: many(authorizationAttempts)
 }));
 
 export const chargersRelations = relations(chargers, ({ one, many }) => ({
@@ -494,7 +720,10 @@ export const chargersRelations = relations(chargers, ({ one, many }) => ({
   sessions: many(chargingSessions),
   alerts: many(alerts),
   ocppMessages: many(ocppMessages),
-  deviceCommands: many(deviceCommands)
+  deviceCommands: many(deviceCommands),
+  accessDevices: many(accessDevices),
+  credentialEnrollments: many(credentialEnrollmentSessions),
+  authorizationAttempts: many(authorizationAttempts)
 }));
 
 export const chargerConnectorsRelations = relations(chargerConnectors, ({ one, many }) => ({
@@ -643,6 +872,88 @@ export const deviceCommandsRelations = relations(deviceCommands, ({ one }) => ({
   })
 }));
 
+export const accessDevicesRelations = relations(accessDevices, ({ one, many }) => ({
+  property: one(properties, {
+    fields: [accessDevices.propertyId],
+    references: [properties.id]
+  }),
+  linkedOutlet: one(chargers, {
+    fields: [accessDevices.linkedOutletId],
+    references: [chargers.id]
+  }),
+  credentialEnrollments: many(credentialEnrollmentSessions),
+  authorizationAttempts: many(authorizationAttempts)
+}));
+
+export const credentialEnrollmentSessionsRelations = relations(
+  credentialEnrollmentSessions,
+  ({ one, many }) => ({
+    property: one(properties, {
+      fields: [credentialEnrollmentSessions.propertyId],
+      references: [properties.id]
+    }),
+    resident: one(residents, {
+      fields: [credentialEnrollmentSessions.residentId],
+      references: [residents.id]
+    }),
+    oldCredential: one(residentCredentials, {
+      fields: [credentialEnrollmentSessions.oldCredentialId],
+      references: [residentCredentials.id]
+    }),
+    accessDevice: one(accessDevices, {
+      fields: [credentialEnrollmentSessions.accessDeviceId],
+      references: [accessDevices.id]
+    }),
+    outlet: one(chargers, {
+      fields: [credentialEnrollmentSessions.outletId],
+      references: [chargers.id]
+    }),
+    events: many(credentialEvents)
+  })
+);
+
+export const credentialEventsRelations = relations(credentialEvents, ({ one }) => ({
+  property: one(properties, {
+    fields: [credentialEvents.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [credentialEvents.residentId],
+    references: [residents.id]
+  }),
+  credential: one(residentCredentials, {
+    fields: [credentialEvents.credentialId],
+    references: [residentCredentials.id]
+  }),
+  enrollment: one(credentialEnrollmentSessions, {
+    fields: [credentialEvents.enrollmentId],
+    references: [credentialEnrollmentSessions.id]
+  })
+}));
+
+export const authorizationAttemptsRelations = relations(authorizationAttempts, ({ one }) => ({
+  property: one(properties, {
+    fields: [authorizationAttempts.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [authorizationAttempts.residentId],
+    references: [residents.id]
+  }),
+  credential: one(residentCredentials, {
+    fields: [authorizationAttempts.credentialId],
+    references: [residentCredentials.id]
+  }),
+  accessDevice: one(accessDevices, {
+    fields: [authorizationAttempts.accessDeviceId],
+    references: [accessDevices.id]
+  }),
+  charger: one(chargers, {
+    fields: [authorizationAttempts.chargerId],
+    references: [chargers.id]
+  })
+}));
+
 export type Property = typeof properties.$inferSelect;
 export type NewProperty = typeof properties.$inferInsert;
 export type ChargingSession = typeof chargingSessions.$inferSelect;
@@ -651,5 +962,15 @@ export type OcppMessageRecord = typeof ocppMessages.$inferSelect;
 export type NewOcppMessageRecord = typeof ocppMessages.$inferInsert;
 export type DeviceCommand = typeof deviceCommands.$inferSelect;
 export type NewDeviceCommand = typeof deviceCommands.$inferInsert;
+export type ResidentCredential = typeof residentCredentials.$inferSelect;
+export type NewResidentCredential = typeof residentCredentials.$inferInsert;
+export type AccessDevice = typeof accessDevices.$inferSelect;
+export type NewAccessDevice = typeof accessDevices.$inferInsert;
+export type CredentialEnrollmentSession = typeof credentialEnrollmentSessions.$inferSelect;
+export type NewCredentialEnrollmentSession = typeof credentialEnrollmentSessions.$inferInsert;
+export type CredentialEvent = typeof credentialEvents.$inferSelect;
+export type NewCredentialEvent = typeof credentialEvents.$inferInsert;
+export type AuthorizationAttempt = typeof authorizationAttempts.$inferSelect;
+export type NewAuthorizationAttempt = typeof authorizationAttempts.$inferInsert;
 
 export const healthcheckSql = sql`select 1`;

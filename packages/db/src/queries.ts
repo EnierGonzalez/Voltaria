@@ -6,22 +6,27 @@ import type {
   ChargingSessionSummary,
   ConsumptionPoint,
   ControlledOutletSummary,
+  AccessDeviceSummary,
+  CredentialEventSummary,
   DeviceCommandSummary,
   MeterValuePoint,
   MobileAccessCredential,
   OcppLogSummary,
   PropertySummary,
   ResidentSummary,
+  RfidCredentialSummary,
   TariffSummary
 } from "@voltaria/shared";
 import type { VoltariaDb } from "./client";
 import {
   alerts,
   apartments,
+  accessDevices,
   billingRecords,
   chargerConnectors,
   chargers,
   chargingSessions,
+  credentialEvents,
   deviceCommands,
   meterValues,
   ocppMessages,
@@ -63,6 +68,17 @@ const statusLabels = {
   info: "Info",
   warning: "Warning",
   critical: "Crítica"
+} as const;
+
+const credentialStatusLabels = {
+  active: "Activa",
+  disabled: "Desactivada",
+  lost: "Perdida",
+  stolen: "Robada",
+  damaged: "Dañada",
+  replaced: "Reemplazada",
+  expired: "Expirada",
+  pending_enrollment: "Pendiente"
 } as const;
 
 export async function getDefaultProperty(db: VoltariaDb) {
@@ -383,6 +399,9 @@ export async function getResidentRfidCredential(
   const [row] = await db
     .select({
       id: residentCredentials.id,
+      label: residentCredentials.label,
+      maskedValue: residentCredentials.maskedValue,
+      status: residentCredentials.status,
       labelSource: residentCredentials.metadata,
       residentName: residents.fullName,
       apartmentNumber: apartments.number,
@@ -394,11 +413,11 @@ export async function getResidentRfidCredential(
     .leftJoin(apartments, eq(apartments.id, residents.apartmentId))
     .where(
       and(
-        eq(residents.propertyId, propertyId),
+        eq(residentCredentials.propertyId, propertyId),
         eq(residentCredentials.credentialType, "rfid")
       )
     )
-    .orderBy(desc(residentCredentials.updatedAt))
+    .orderBy(sql`case when ${residentCredentials.status} = 'active' then 0 else 1 end`, desc(residentCredentials.updatedAt))
     .limit(1);
 
   if (!row) {
@@ -406,17 +425,134 @@ export async function getResidentRfidCredential(
   }
 
   const metadata = normalizeRfidMetadata(row.labelSource);
+  const status = row.status === "active" ? "active" : "suspended";
 
   return {
     id: row.id,
-    label: metadata.label,
-    maskedValue: metadata.maskedValue,
-    status: metadata.status,
-    statusLabel: metadata.status === "active" ? "Activa" : "Suspendida",
+    label: row.label ?? metadata.label,
+    maskedValue: row.maskedValue ?? metadata.maskedValue,
+    status,
+    statusLabel: status === "active" ? "Activa" : "Bloqueada",
     residentName: row.residentName,
     apartmentNumber: row.apartmentNumber ?? "Sin depto",
     propertyName: row.propertyName
   };
+}
+
+export async function getResidentById(
+  db: VoltariaDb,
+  residentId: string
+): Promise<ResidentSummary | null> {
+  const [row] = await db
+    .select({
+      id: residents.id,
+      propertyId: residents.propertyId,
+      name: residents.fullName,
+      email: residents.email,
+      apartmentNumber: apartments.number,
+      propertyName: properties.name,
+      isActive: residents.isActive
+    })
+    .from(residents)
+    .innerJoin(properties, eq(properties.id, residents.propertyId))
+    .leftJoin(apartments, eq(apartments.id, residents.apartmentId))
+    .where(eq(residents.id, residentId))
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  const sessions = await getRecentSessions(db, row.propertyId, 500);
+  const residentSessions = sessions.filter((session) => session.residentName === row.name);
+  const monthlyKwh = residentSessions.reduce((sum, session) => sum + session.deliveredKwh, 0);
+  const monthlyCost = residentSessions.reduce((sum, session) => sum + session.costAmount, 0);
+
+  return {
+    id: row.id,
+    propertyId: row.propertyId,
+    name: row.name,
+    firstName: row.name.split(" ")[0] ?? row.name,
+    initials: getInitials(row.name),
+    email: row.email,
+    apartmentNumber: row.apartmentNumber ?? "Sin depto",
+    propertyName: row.propertyName,
+    accessStatus: row.isActive ? "success" : "warning",
+    accessLabel: row.isActive ? "Activo" : "Pendiente",
+    sessionsThisMonth: residentSessions.length,
+    monthlyKwh,
+    averageKwh: residentSessions.length > 0 ? monthlyKwh / residentSessions.length : 0,
+    monthlyCost
+  };
+}
+
+export async function getResidentCredentialSummaries(
+  db: VoltariaDb,
+  residentId: string
+): Promise<RfidCredentialSummary[]> {
+  const rows = await db
+    .select()
+    .from(residentCredentials)
+    .where(and(eq(residentCredentials.residentId, residentId), eq(residentCredentials.credentialType, "rfid")))
+    .orderBy(desc(residentCredentials.createdAt));
+
+  return rows.map((credential) => {
+    const metadata = normalizeRfidMetadata(credential.metadata);
+
+    return {
+      id: credential.id,
+      propertyId: credential.propertyId,
+      residentId: credential.residentId,
+      label: credential.label ?? metadata.label,
+      maskedValue: credential.maskedValue ?? metadata.maskedValue,
+      credentialType: "rfid",
+      status: credential.status,
+      statusLabel: credentialStatusLabels[credential.status],
+      createdAt: toIso(credential.createdAt),
+      ...(credential.lastUsedAt ? { lastUsedAt: toIso(credential.lastUsedAt) } : {})
+    };
+  });
+}
+
+export async function getCredentialEventsForResident(
+  db: VoltariaDb,
+  residentId: string
+): Promise<CredentialEventSummary[]> {
+  const rows = await db
+    .select()
+    .from(credentialEvents)
+    .where(eq(credentialEvents.residentId, residentId))
+    .orderBy(desc(credentialEvents.createdAt))
+    .limit(50);
+
+  return rows.map((event) => ({
+    id: event.id,
+    action: event.action,
+    ...(event.reason ? { reason: event.reason } : {}),
+    ...(event.performedBy ? { performedBy: event.performedBy } : {}),
+    createdAt: toIso(event.createdAt)
+  }));
+}
+
+export async function getAccessDeviceSummaries(
+  db: VoltariaDb,
+  propertyId: string
+): Promise<AccessDeviceSummary[]> {
+  const rows = await db
+    .select()
+    .from(accessDevices)
+    .where(eq(accessDevices.propertyId, propertyId))
+    .orderBy(accessDevices.name);
+
+  return rows.map((device) => ({
+    id: device.id,
+    propertyId: device.propertyId,
+    code: device.code,
+    name: device.name,
+    kind: device.kind,
+    status: device.status,
+    ...(device.locationLabel ? { locationLabel: device.locationLabel } : {})
+  }));
 }
 
 export async function getAlerts(db: VoltariaDb, propertyId: string): Promise<AlertSummary[]> {
