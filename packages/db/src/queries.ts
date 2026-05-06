@@ -621,8 +621,18 @@ export async function getResidents(db: VoltariaDb, propertyId: string): Promise<
 
 export async function getResidentRfidCredential(
   db: VoltariaDb,
-  propertyId: string
+  propertyId: string,
+  residentId?: string
 ): Promise<MobileAccessCredential | null> {
+  const filters = [
+    eq(residentCredentials.propertyId, propertyId),
+    eq(residentCredentials.credentialType, "rfid")
+  ];
+
+  if (residentId) {
+    filters.push(eq(residentCredentials.residentId, residentId));
+  }
+
   const [row] = await db
     .select({
       id: residentCredentials.id,
@@ -638,12 +648,7 @@ export async function getResidentRfidCredential(
     .innerJoin(residents, eq(residents.id, residentCredentials.residentId))
     .innerJoin(properties, eq(properties.id, residents.propertyId))
     .leftJoin(apartments, eq(apartments.id, residents.apartmentId))
-    .where(
-      and(
-        eq(residentCredentials.propertyId, propertyId),
-        eq(residentCredentials.credentialType, "rfid")
-      )
-    )
+    .where(and(...filters))
     .orderBy(sql`case when ${residentCredentials.status} = 'active' then 0 else 1 end`, desc(residentCredentials.updatedAt))
     .limit(1);
 

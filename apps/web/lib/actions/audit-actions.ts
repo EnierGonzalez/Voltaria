@@ -15,6 +15,7 @@ import {
   auditReviewUpdateSchema,
   recordIdSchema
 } from "@voltaria/shared";
+import { requireActionPermission } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -25,6 +26,7 @@ type ActionResult = {
 };
 
 export async function auditSessionAction(sessionId: string): Promise<ActionResult> {
+  await requireActionPermission("sessions.audit");
   const parsed = recordIdSchema.safeParse(sessionId);
 
   if (!parsed.success) {
@@ -42,9 +44,10 @@ export async function markSessionReviewedAction(input: {
   sessionId: string;
   notes?: string;
 }): Promise<ActionResult> {
+  const user = await requireActionPermission("audit.manage");
   const parsed = auditReviewUpdateSchema.safeParse({
     ...input,
-    reviewedBy: "admin"
+    reviewedBy: user.email
   });
 
   if (!parsed.success) {
@@ -67,6 +70,7 @@ export async function excludeSessionFromBillingAction(input: {
   sessionId: string;
   reason: string;
 }): Promise<ActionResult> {
+  await requireActionPermission("audit.manage");
   const parsed = auditBillingStatusUpdateSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -88,6 +92,7 @@ export async function includeSessionInBillingAction(input: {
   sessionId: string;
   reason: string;
 }): Promise<ActionResult> {
+  await requireActionPermission("audit.manage");
   const parsed = auditBillingStatusUpdateSchema.safeParse(input);
 
   if (!parsed.success) {

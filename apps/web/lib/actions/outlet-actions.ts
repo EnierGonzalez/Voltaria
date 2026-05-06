@@ -11,6 +11,11 @@ import {
   type RuntimeResult
 } from "@voltaria/db";
 import { publicAccessCodeSchema, recordIdSchema } from "@voltaria/shared";
+import {
+  getCurrentResidentContext,
+  isDevelopmentAuthFallbackAllowed,
+  requireActionPermission
+} from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -24,7 +29,15 @@ export async function startMobileOutletSession(publicCode: string): Promise<Outl
   }
 
   return withDbAction(async (db) => {
-    const result = await dbStartMobileOutletSession(db, parsed.data);
+    const residentContext = await getCurrentResidentContext();
+
+    if (!residentContext && !isDevelopmentAuthFallbackAllowed()) {
+      return { ok: false, error: "Debes iniciar sesión como residente." };
+    }
+
+    const result = await dbStartMobileOutletSession(db, parsed.data, {
+      ...(residentContext?.residentId ? { residentId: residentContext.residentId } : {})
+    });
     revalidateOutletPaths(parsed.data);
     return result;
   });
@@ -38,9 +51,16 @@ export async function stopMobileOutletSession(sessionId: string): Promise<Outlet
   }
 
   return withDbAction(async (db) => {
+    const residentContext = await getCurrentResidentContext();
+
+    if (!residentContext && !isDevelopmentAuthFallbackAllowed()) {
+      return { ok: false, error: "Debes iniciar sesión como residente." };
+    }
+
     const result = await requestStopOutletSession(db, parsed.data, {
       requestedBy: "mobile",
-      requireDemoResident: true
+      ...(!residentContext ? { requireDemoResident: true } : {}),
+      ...(residentContext?.residentId ? { residentId: residentContext.residentId } : {})
     });
     revalidateRuntimePaths();
     return result;
@@ -48,7 +68,7 @@ export async function stopMobileOutletSession(sessionId: string): Promise<Outlet
 }
 
 export async function adminStopOutletSession(sessionId: string): Promise<OutletActionResult> {
-  // TODO(auth): require an authenticated operator role before enabling this outside demo/staging.
+  await requireActionPermission("sessions.stop");
   const parsed = recordIdSchema.safeParse(sessionId);
 
   if (!parsed.success) {
@@ -63,7 +83,7 @@ export async function adminStopOutletSession(sessionId: string): Promise<OutletA
 }
 
 export async function adminDisableOutlet(outletId: string): Promise<OutletActionResult> {
-  // TODO(auth): require an authenticated operator role before enabling this outside demo/staging.
+  await requireActionPermission("outlets.control");
   const parsed = recordIdSchema.safeParse(outletId);
 
   if (!parsed.success) {
@@ -78,7 +98,7 @@ export async function adminDisableOutlet(outletId: string): Promise<OutletAction
 }
 
 export async function adminEnableOutlet(outletId: string): Promise<OutletActionResult> {
-  // TODO(auth): require an authenticated operator role before enabling this outside demo/staging.
+  await requireActionPermission("outlets.control");
   const parsed = recordIdSchema.safeParse(outletId);
 
   if (!parsed.success) {

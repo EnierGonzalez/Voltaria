@@ -19,6 +19,7 @@ import {
   billingCycleItemAdjustmentSchema,
   recordIdSchema
 } from "@voltaria/shared";
+import { requireActionPermission } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -33,6 +34,7 @@ export async function createBillingCycleDraftAction(input: {
   periodStart: string;
   periodEnd: string;
 }): Promise<ActionResult> {
+  const user = await requireActionPermission("billing.manage");
   return withDbAction(async (db) => {
     const property = await getDefaultProperty(db);
 
@@ -44,7 +46,7 @@ export async function createBillingCycleDraftAction(input: {
       propertyId: property.id,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
-      createdBy: "admin"
+      createdBy: user.email
     });
 
     if (!parsed.success) {
@@ -56,7 +58,7 @@ export async function createBillingCycleDraftAction(input: {
       property.id,
       parsed.data.periodStart,
       parsed.data.periodEnd,
-      "admin"
+      user.email
     );
     revalidateBillingPaths(detail.cycle.id);
 
@@ -69,6 +71,7 @@ export async function createBillingCycleDraftAction(input: {
 }
 
 export async function recalculateBillingCycleAction(billingCycleId: string): Promise<ActionResult> {
+  await requireActionPermission("billing.manage");
   const parsed = billingCycleIdSchema.safeParse({ billingCycleId });
 
   if (!parsed.success) {
@@ -83,6 +86,7 @@ export async function recalculateBillingCycleAction(billingCycleId: string): Pro
 }
 
 export async function approveBillingCycleAction(billingCycleId: string): Promise<ActionResult> {
+  const user = await requireActionPermission("billing.approve");
   const parsed = billingCycleIdSchema.safeParse({ billingCycleId });
 
   if (!parsed.success) {
@@ -90,13 +94,14 @@ export async function approveBillingCycleAction(billingCycleId: string): Promise
   }
 
   return withDbAction(async (db) => {
-    await approveBillingCycle(db, parsed.data.billingCycleId, "admin");
+    await approveBillingCycle(db, parsed.data.billingCycleId, user.email);
     revalidateBillingPaths(parsed.data.billingCycleId);
     return { ok: true, message: "Corte aprobado." };
   });
 }
 
 export async function closeBillingCycleAction(billingCycleId: string): Promise<ActionResult> {
+  await requireActionPermission("billing.approve");
   const parsed = billingCycleIdSchema.safeParse({ billingCycleId });
 
   if (!parsed.success) {
@@ -115,6 +120,7 @@ export async function updateBillingCycleItemAdjustmentAction(input: {
   adjustmentAmount: number;
   adjustmentReason: string;
 }): Promise<ActionResult> {
+  await requireActionPermission("billing.manage");
   const parsed = billingCycleItemAdjustmentSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -138,6 +144,7 @@ export async function excludeSessionFromCycleAction(input: {
   sessionId: string;
   reason: string;
 }): Promise<ActionResult> {
+  await requireActionPermission("billing.manage");
   const cycle = recordIdSchema.safeParse(input.billingCycleId);
   const session = recordIdSchema.safeParse(input.sessionId);
 
@@ -161,6 +168,7 @@ export async function includeSessionInCycleAction(input: {
   billingCycleId: string;
   sessionId: string;
 }): Promise<ActionResult> {
+  await requireActionPermission("billing.manage");
   const cycle = recordIdSchema.safeParse(input.billingCycleId);
   const session = recordIdSchema.safeParse(input.sessionId);
 

@@ -34,6 +34,7 @@ import {
   getSessionAuditSummaryBySessionId,
   getSessionById,
   getTariffs,
+  listAppUsers,
   loadDatabaseEnv
 } from "@voltaria/db";
 import {
@@ -79,6 +80,8 @@ import {
   type SessionEventSummary,
   type TariffSummary
 } from "@voltaria/shared";
+import type { AppUserSummary } from "@voltaria/db";
+import { getCurrentResidentContext, isDevelopmentAuthFallbackAllowed } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -168,6 +171,12 @@ export type BillingPageData = {
 
 export type BillingCycleDetailPageData = {
   detail: BillingCycleDetail | null;
+};
+
+export type UsersSettingsPageData = {
+  users: AppUserSummary[];
+  residents: ResidentSummary[];
+  propertyId: string | null;
 };
 
 const mockDashboardData: DashboardPageData = {
@@ -589,15 +598,51 @@ export async function getBillingCycleDetailPageData(
   }));
 }
 
+export async function getUsersSettingsPageData(): Promise<UsersSettingsPageData> {
+  return withDatabaseFallback<UsersSettingsPageData>(
+    {
+      users: [],
+      residents,
+      propertyId: null
+    },
+    async ({ db }) => {
+      const property = await getDefaultProperty(db);
+
+      if (!property) {
+        return { users: [], residents, propertyId: null };
+      }
+
+      return {
+        users: await listAppUsers(db, property.id),
+        residents: await getResidents(db, property.id),
+        propertyId: property.id
+      };
+    }
+  );
+}
+
 export async function getMobileAccessData(): Promise<MobileAccessSummary> {
   return withDatabaseFallback<MobileAccessSummary>(mobileAccessSummary, async ({ db }) => {
+    const residentContext = await getCurrentResidentContext();
     const property = await getDefaultProperty(db);
 
     if (!property) {
       return mobileAccessSummary;
     }
 
-    const credential = await getResidentRfidCredential(db, property.id);
+    if (!residentContext && !isDevelopmentAuthFallbackAllowed()) {
+      return {
+        status: "missing",
+        statusLabel: "Sin tarjeta asignada"
+      };
+    }
+
+    const propertyId = residentContext?.propertyId ?? property.id;
+    const credential = await getResidentRfidCredential(
+      db,
+      propertyId,
+      residentContext?.residentId
+    );
 
     if (!credential) {
       return mobileAccessSummary;
@@ -613,10 +658,19 @@ export async function getMobileAccessData(): Promise<MobileAccessSummary> {
 
 export async function getMobileChargeData(): Promise<MobileChargeData> {
   return withDatabaseFallback<MobileChargeData>({ session: mobileSessions[0] ?? null }, async ({ db }) => {
-    const resident = await getCurrentDemoResident(db);
+    const residentContext = await getCurrentResidentContext();
+    const resident = residentContext?.residentId
+      ? {
+          id: residentContext.residentId,
+          propertyId: residentContext.propertyId,
+          fullName: residentContext.user.activeMembership?.residentName ?? residentContext.user.fullName
+        }
+      : isDevelopmentAuthFallbackAllowed()
+        ? await getCurrentDemoResident(db)
+        : null;
 
     if (!resident) {
-      return { session: mobileSessions[0] ?? null };
+      return { session: null };
     }
 
     const sessions = await getRecentSessions(db, resident.propertyId, 80);

@@ -1,9 +1,17 @@
 import { AdminShell } from "@/components/admin-shell";
+import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <AdminShell>{children}</AdminShell>;
+  const user = await requireUser("/dashboard");
+
+  if (!user.permissions.includes("dashboard.view")) {
+    redirect("/403");
+  }
+
+  return <AdminShell currentUser={user}>{children}</AdminShell>;
 }

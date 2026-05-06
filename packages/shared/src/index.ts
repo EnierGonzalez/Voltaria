@@ -4,5 +4,6 @@ export * from "./csv";
 export * from "./formatters";
 export * from "./mock-data";
 export * from "./outlet-simulator";
+export * from "./permissions";
 export * from "./types";
 export * from "./validation";

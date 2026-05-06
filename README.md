@@ -259,7 +259,51 @@ Resumen:
 
 ## Auth
 
-La capa de auth está modelada sin acoplarse a Neon, Supabase ni otro proveedor. `resident_credentials` guarda identidad externa de forma genérica y `packages/shared/src/auth.ts` define contratos para conectar un proveedor real después.
+Voltaria ahora usa login interno con usuarios propios, roles y sesiones en cookie `httpOnly`. No usa Supabase Auth todavía y sigue preparado para migrar la base a Supabase PostgreSQL después.
+
+Variables relevantes:
+
+```bash
+AUTH_SESSION_SECRET="secret-estable"
+AUTH_SESSION_HOURS="12"
+FIRST_OWNER_EMAIL="admin@voltaria.local"
+FIRST_OWNER_PASSWORD="password-temporal-solo-para-seed"
+FIRST_OWNER_NAME="Voltaria Owner"
+```
+
+Antes de ejecutar `pnpm db:seed` en un ambiente nuevo, define `FIRST_OWNER_EMAIL`, `FIRST_OWNER_PASSWORD` y `AUTH_SESSION_SECRET`. El seed crea el primer owner si no existe y marca `must_change_password=true` para forzar cambio al primer login. No imprime contraseñas ni secrets.
+
+Roles principales:
+
+- `owner`: acceso total, incluyendo administración crítica de roles.
+- `admin`: operación completa, sin asignación crítica de owner.
+- `operations`: tomas, sesiones y residentes operativos.
+- `accounting`: billing, audit y exportaciones.
+- `auditor`: lectura de sesiones, billing, audit y reportes.
+- `resident`: PWA móvil, acceso RFID y sesiones propias.
+- `support`: lectura operativa, salud del sistema y simulador RFID.
+
+Rutas nuevas:
+
+- `/login`: inicio de sesión interno.
+- `/change-password`: cambio obligatorio o manual de contraseña.
+- `/403`: acceso denegado.
+- `/settings/users`: administración de usuarios, roles, estado y contraseñas temporales.
+
+Estrategia staging:
+
+1. Mantén `STAGING_ACCESS_ENABLED=true` si quieres un candado externo adicional.
+2. Entra por `/login` con el owner creado por seed.
+3. Crea usuarios reales desde `/settings/users`.
+4. Cuando el login interno esté validado en Vercel, puedes cambiar `STAGING_ACCESS_ENABLED=false`.
+
+Seguridad:
+
+- Passwords se guardan con `scrypt` y salt aleatorio.
+- La cookie de sesión es `httpOnly`, `sameSite=lax` y `secure` fuera de development.
+- `user_sessions` guarda hash del token, no el token plano.
+- Acciones administrativas y CSV validan permisos server-side.
+- `/api/rfid/event` sigue usando `RFID_READER_API_KEY`, no sesión web.
 
 ## Regla de producto
 

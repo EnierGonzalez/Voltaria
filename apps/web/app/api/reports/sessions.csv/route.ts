@@ -8,6 +8,7 @@ import {
   loadDatabaseEnv
 } from "@voltaria/db";
 import { reportsPeriodQuerySchema, toCsv } from "@voltaria/shared";
+import { getCurrentUser } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -15,6 +16,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+  }
+
+  if (!user.permissions.includes("reports.export")) {
+    return NextResponse.json({ error: "No tienes permiso para exportar reportes." }, { status: 403 });
+  }
+
   const { db, client } = createDbClient();
 
   try {

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { SessionDetail } from "@/components/session-detail";
 import { getSessionDetailPageData } from "@/lib/data";
+import { requirePagePermission } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export default async function SessionDetailPage({
 }: {
   params: Promise<{ sessionId: string }>;
 }) {
+  await requirePagePermission("sessions.view", "/sessions");
   const { sessionId } = await params;
   const data = await getSessionDetailPageData(sessionId);
 

@@ -1,12 +1,14 @@
 import { SectionCard, StatusBadge } from "@voltaria/ui";
 import { createDbClientIfConfigured, loadDatabaseEnv, pingDatabase } from "@voltaria/db";
 import { getDeploymentConfigStatus } from "@/lib/deployment";
+import { requirePagePermission } from "@/lib/auth";
 
 loadDatabaseEnv();
 
 export const dynamic = "force-dynamic";
 
 export default async function DeploymentSettingsPage() {
+  await requirePagePermission("system.health.view", "/settings/deployment");
   const config = getDeploymentConfigStatus();
   const dbReachable = await checkDatabase();
 
@@ -30,6 +32,11 @@ export default async function DeploymentSettingsPage() {
             label="RFID reader key"
             value={config.rfidReaderApiKeyConfigured ? "configured" : "missing/placeholder"}
             ok={config.rfidReaderApiKeyConfigured || config.appEnv === "development"}
+          />
+          <ReadinessItem
+            label="Auth session secret"
+            value={config.authSessionSecretConfigured ? "configured" : "missing/placeholder"}
+            ok={config.authSessionSecretConfigured || config.appEnv === "development"}
           />
           <ReadinessItem
             label="Staging protection"

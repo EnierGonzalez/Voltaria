@@ -1,4 +1,6 @@
 export * from "./access-control";
+export * from "./auth-service";
+export * from "./auth-utils";
 export * from "./billing-cycle-service";
 export * from "./client";
 export * from "./credential-service";

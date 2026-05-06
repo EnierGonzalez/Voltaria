@@ -12,6 +12,7 @@ import {
   towerOutlets
 } from "@voltaria/shared";
 import { createMigrationDbClient } from "./client";
+import { createInitialOwnerIfMissing, createMembership, createUser, getUserByEmail } from "./auth-service";
 import { loadDatabaseEnv } from "./load-env";
 import { hashRfidTag, maskRfidTag } from "./rfid-utils";
 import {
@@ -77,6 +78,7 @@ async function seed() {
 
     await ensureRfidSeed(property.id);
     await ensureOperationalRulesSeed(property.id);
+    await ensureAuthSeed(property.id);
     return;
   }
 
@@ -466,6 +468,105 @@ async function seed() {
   );
 
   await ensureOperationalRulesSeed(property.id);
+  await ensureAuthSeed(property.id);
+}
+
+async function ensureAuthSeed(propertyId: string) {
+  await createInitialOwnerIfMissing(db);
+
+  const demoPassword = getSeedPassword();
+
+  await ensureSeedAppUser({
+    propertyId,
+    email: "operations@voltaria.local",
+    fullName: "Voltaria Operación",
+    userType: "staff",
+    role: "operations",
+    ...(demoPassword ? { password: demoPassword } : {})
+  });
+  await ensureSeedAppUser({
+    propertyId,
+    email: "accounting@voltaria.local",
+    fullName: "Voltaria Contabilidad",
+    userType: "staff",
+    role: "accounting",
+    ...(demoPassword ? { password: demoPassword } : {})
+  });
+  await ensureSeedAppUser({
+    propertyId,
+    email: "auditor@voltaria.local",
+    fullName: "Voltaria Auditoría",
+    userType: "staff",
+    role: "auditor",
+    ...(demoPassword ? { password: demoPassword } : {})
+  });
+
+  const [maria] = await db
+    .select()
+    .from(residents)
+    .where(and(eq(residents.propertyId, propertyId), eq(residents.email, "maria.lopez@example.com")))
+    .limit(1);
+
+  if (maria) {
+    await ensureSeedAppUser({
+      propertyId,
+      email: maria.email,
+      fullName: maria.fullName,
+      userType: "resident",
+      role: "resident",
+      residentId: maria.id,
+      ...(demoPassword ? { password: demoPassword } : {}),
+      ...(maria.apartmentId ? { apartmentId: maria.apartmentId } : {})
+    });
+  }
+}
+
+async function ensureSeedAppUser(input: {
+  propertyId: string;
+  email: string;
+  fullName: string;
+  userType: "staff" | "resident" | "service";
+  role: "operations" | "accounting" | "auditor" | "resident" | "support" | "admin" | "owner";
+  password?: string;
+  residentId?: string;
+  apartmentId?: string;
+}) {
+  const existingUser = await getUserByEmail(db, input.email);
+  const user =
+    existingUser ??
+    (await createUser(db, {
+      email: input.email,
+      fullName: input.fullName,
+      userType: input.userType,
+      status: "active",
+      ...(input.password ? { password: input.password } : {}),
+      mustChangePassword: true,
+      metadata: { seeded: true }
+    }));
+
+  await createMembership(db, {
+    userId: user.id,
+    propertyId: input.propertyId,
+    role: input.role,
+    status: "active",
+    ...(input.residentId ? { residentId: input.residentId } : {}),
+    ...(input.apartmentId ? { apartmentId: input.apartmentId } : {})
+  });
+}
+
+function getSeedPassword() {
+  const configured = process.env.FIRST_OWNER_PASSWORD?.trim();
+
+  if (configured) {
+    return configured;
+  }
+
+  if ((process.env.APP_ENV ?? "development") === "development") {
+    return "VoltariaDemo2026!";
+  }
+
+  console.warn("FIRST_OWNER_PASSWORD is not configured; demo users will be created without a usable password.");
+  return undefined;
 }
 
 async function ensureRfidSeed(propertyId: string) {

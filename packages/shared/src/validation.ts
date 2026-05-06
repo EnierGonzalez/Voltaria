@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { appRoles } from "./permissions";
 
 export const propertyIdSchema = z.string().min(1);
 
@@ -141,6 +142,66 @@ export const reportsPeriodQuerySchema = z
     path: ["endDate"]
   });
 
+export const appRoleSchema = z.enum(appRoles);
+
+export const appUserStatusSchema = z.enum(["active", "invited", "suspended", "disabled"]);
+
+export const appUserTypeSchema = z.enum(["staff", "resident", "service"]);
+
+export const loginSchema = z.object({
+  email: z.string().trim().email().max(180).transform((value) => value.toLowerCase()),
+  password: z.string().min(1).max(200),
+  next: z.string().trim().max(500).optional()
+});
+
+export const passwordStrengthSchema = z
+  .string()
+  .min(10, "La contraseña debe tener al menos 10 caracteres.")
+  .max(200)
+  .refine((value) => /[a-z]/.test(value), "Incluye una minúscula.")
+  .refine((value) => /[A-Z]/.test(value), "Incluye una mayúscula.")
+  .refine((value) => /\d/.test(value), "Incluye un número.");
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(200).optional(),
+    newPassword: passwordStrengthSchema,
+    confirmPassword: z.string().min(1).max(200)
+  })
+  .refine((value) => value.newPassword === value.confirmPassword, {
+    message: "Las contraseñas no coinciden.",
+    path: ["confirmPassword"]
+  });
+
+export const userCreateSchema = z.object({
+  fullName: z.string().trim().min(2).max(180),
+  email: z.string().trim().email().max(180).transform((value) => value.toLowerCase()),
+  phone: z.string().trim().max(40).optional(),
+  userType: appUserTypeSchema,
+  role: appRoleSchema,
+  propertyId: recordIdSchema,
+  residentId: recordIdSchema.optional(),
+  apartmentId: recordIdSchema.optional(),
+  temporaryPassword: passwordStrengthSchema,
+  status: appUserStatusSchema.default("active")
+});
+
+export const userStatusUpdateSchema = z.object({
+  userId: recordIdSchema,
+  status: appUserStatusSchema,
+  reason: z.string().trim().min(2).max(180).optional()
+});
+
+export const userRoleUpdateSchema = z.object({
+  membershipId: recordIdSchema,
+  role: appRoleSchema
+});
+
+export const userTemporaryPasswordSchema = z.object({
+  userId: recordIdSchema,
+  temporaryPassword: passwordStrengthSchema
+});
+
 export const sessionTelemetrySchema = z.object({
   propertyId: propertyIdSchema,
   chargerId: z.string().min(1),
@@ -177,3 +238,13 @@ export type AuditReviewUpdateInput = z.infer<typeof auditReviewUpdateSchema>;
 export type AuditBillingStatusUpdateInput = z.infer<typeof auditBillingStatusUpdateSchema>;
 
 export type BillingCycleItemAdjustmentInput = z.infer<typeof billingCycleItemAdjustmentSchema>;
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+export type UserCreateInput = z.infer<typeof userCreateSchema>;
+
+export type UserStatusUpdateInput = z.infer<typeof userStatusUpdateSchema>;
+
+export type UserRoleUpdateInput = z.infer<typeof userRoleUpdateSchema>;

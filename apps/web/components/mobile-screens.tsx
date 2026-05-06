@@ -14,6 +14,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { SectionCard, StatusBadge } from "@voltaria/ui";
+import type { CurrentUser } from "@voltaria/db";
 import {
   formatCurrency,
   formatDuration,
@@ -27,6 +28,7 @@ import {
   type MobileAccessSummary
 } from "@voltaria/shared";
 import { stopMobileOutletSession } from "@/lib/actions/outlet-actions";
+import { logoutAction } from "@/lib/actions/auth-actions";
 import type { MobileChargeData } from "@/lib/data";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ConsumptionChart } from "./consumption-chart";
@@ -403,16 +405,30 @@ export function MobileAccessScreen({
   );
 }
 
-export function MobileAccountScreen() {
+export function MobileAccountScreen({ currentUser }: { currentUser?: CurrentUser }) {
+  const membership = currentUser?.activeMembership;
+
   return (
     <div className="space-y-5">
       <SectionCard title="Account" description="Perfil residencial">
         <div className="space-y-3">
-          <MobileMetricCard label="Nombre" value={mobileResident.name} />
-          <MobileMetricCard label="Email" value={mobileResident.email} />
-          <MobileMetricCard label="Departamento" value={mobileResident.apartmentNumber} />
+          <MobileMetricCard label="Nombre" value={currentUser?.fullName ?? mobileResident.name} />
+          <MobileMetricCard label="Email" value={currentUser?.email ?? mobileResident.email} />
+          <MobileMetricCard
+            label="Departamento"
+            value={membership?.apartmentNumber ?? mobileResident.apartmentNumber}
+          />
+          <MobileMetricCard label="Rol" value={membership?.role ?? "resident"} />
         </div>
       </SectionCard>
+      <form action={logoutAction}>
+        <button
+          type="submit"
+          className="inline-flex h-11 w-full items-center justify-center rounded-md border border-border bg-panel2 px-4 text-sm font-semibold text-muted transition hover:border-primary/60 hover:text-foreground"
+        >
+          Cerrar sesión
+        </button>
+      </form>
     </div>
   );
 }

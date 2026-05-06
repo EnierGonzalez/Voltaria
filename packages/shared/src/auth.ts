@@ -1,3 +1,5 @@
+import type { AppRole } from "./permissions";
+
 export type AuthProvider = "local" | "supabase" | "custom";
 
 export type AuthIdentity = {
@@ -11,7 +13,7 @@ export type AuthSession = {
   residentId?: string;
   propertyId?: string;
   email: string;
-  roles: Array<"admin" | "operator" | "resident">;
+  roles: AppRole[];
 };
 
 export type AuthProviderAdapter = {

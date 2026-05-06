@@ -37,7 +37,7 @@ export type RuntimeResult =
       error: string;
     };
 
-type RuntimeResident = {
+export type RuntimeResident = {
   id: string;
   propertyId: string;
   apartmentId: string | null;
@@ -82,12 +82,37 @@ export async function getCurrentDemoResident(db: DbExecutor): Promise<RuntimeRes
   return resident ?? null;
 }
 
+export async function getRuntimeResidentById(
+  db: DbExecutor,
+  residentId: string
+): Promise<RuntimeResident | null> {
+  const [resident] = await db
+    .select({
+      id: residents.id,
+      propertyId: residents.propertyId,
+      apartmentId: residents.apartmentId,
+      fullName: residents.fullName,
+      email: residents.email,
+      isActive: residents.isActive,
+      apartmentNumber: apartments.number
+    })
+    .from(residents)
+    .leftJoin(apartments, eq(apartments.id, residents.apartmentId))
+    .where(eq(residents.id, residentId))
+    .limit(1);
+
+  return resident ?? null;
+}
+
 export async function startMobileOutletSession(
   db: VoltariaDb,
-  publicAccessCode: string
+  publicAccessCode: string,
+  options: { residentId?: string } = {}
 ): Promise<RuntimeResult> {
   return db.transaction(async (tx) => {
-    const resident = await getCurrentDemoResident(tx);
+    const resident = options.residentId
+      ? await getRuntimeResidentById(tx, options.residentId)
+      : await getCurrentDemoResident(tx);
 
     if (!resident) {
       return { ok: false, error: "No se encontró el residente demo." };
@@ -260,7 +285,7 @@ export async function startMobileOutletSession(
 export async function requestStopOutletSession(
   db: VoltariaDb,
   sessionId: string,
-  options: { requestedBy: "mobile" | "admin"; requireDemoResident?: boolean }
+  options: { requestedBy: "mobile" | "admin"; requireDemoResident?: boolean; residentId?: string }
 ): Promise<RuntimeResult> {
   return db.transaction(async (tx) => {
     const [session] = await tx
@@ -290,6 +315,10 @@ export async function requestStopOutletSession(
 
     if (session.status !== "active" && session.status !== "pending_start") {
       return { ok: false, error: "La sesión no está activa ni en proceso de inicio." };
+    }
+
+    if (options.residentId && session.residentId !== options.residentId) {
+      return { ok: false, error: "No puedes detener una sesión de otro residente." };
     }
 
     if (options.requireDemoResident && session.residentEmail !== DEMO_RESIDENT_EMAIL) {
@@ -330,7 +359,8 @@ export async function requestStopOutletSession(
           sessionId: session.id,
           requestedMethod: options.requestedBy
         },
-        requestedBy: options.requestedBy === "admin" ? "admin:demo" : `resident:${session.residentId ?? "demo"}`
+        requestedBy:
+          options.requestedBy === "admin" ? "admin:demo" : `resident:${session.residentId ?? "demo"}`
       })
       .returning();
 

@@ -215,6 +215,32 @@ export const exportJobStatusEnum = pgEnum("export_job_status", [
   "failed"
 ]);
 
+export const appUserStatusEnum = pgEnum("app_user_status", [
+  "active",
+  "invited",
+  "suspended",
+  "disabled"
+]);
+
+export const appUserTypeEnum = pgEnum("app_user_type", ["staff", "resident", "service"]);
+
+export const appUserRoleEnum = pgEnum("app_user_role", [
+  "owner",
+  "admin",
+  "operations",
+  "accounting",
+  "auditor",
+  "resident",
+  "support"
+]);
+
+export const userMembershipStatusEnum = pgEnum("user_membership_status", [
+  "active",
+  "invited",
+  "suspended",
+  "disabled"
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
@@ -321,6 +347,125 @@ export const residentCredentials = pgTable(
     activeRfidHashIdx: uniqueIndex("resident_credentials_active_rfid_hash_idx")
       .on(table.propertyId, table.hashedValue)
       .where(sql`${table.credentialType} = 'rfid' and ${table.status} = 'active'`)
+  })
+);
+
+export const appUsers = pgTable(
+  "app_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: varchar("email", { length: 180 }).notNull(),
+    fullName: varchar("full_name", { length: 180 }).notNull(),
+    phone: varchar("phone", { length: 40 }),
+    status: appUserStatusEnum("status").default("active").notNull(),
+    userType: appUserTypeEnum("user_type").default("staff").notNull(),
+    passwordHash: text("password_hash"),
+    mustChangePassword: boolean("must_change_password").default(true).notNull(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    failedLoginAttempts: integer("failed_login_attempts").default(0).notNull(),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    emailIdx: uniqueIndex("app_users_email_idx").on(table.email),
+    statusIdx: index("app_users_status_idx").on(table.status)
+  })
+);
+
+export const userPropertyMemberships = pgTable(
+  "user_property_memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .references(() => appUsers.id, { onDelete: "cascade" })
+      .notNull(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    apartmentId: uuid("apartment_id").references(() => apartments.id, { onDelete: "set null" }),
+    role: appUserRoleEnum("role").notNull(),
+    status: userMembershipStatusEnum("status").default("active").notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    userPropertyIdx: uniqueIndex("user_property_memberships_user_property_idx").on(
+      table.userId,
+      table.propertyId
+    ),
+    propertyRoleStatusIdx: index("user_property_memberships_property_role_status_idx").on(
+      table.propertyId,
+      table.role,
+      table.status
+    ),
+    residentIdx: index("user_property_memberships_resident_idx").on(table.residentId)
+  })
+);
+
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .references(() => appUsers.id, { onDelete: "cascade" })
+      .notNull(),
+    sessionTokenHash: text("session_token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: varchar("ip_address", { length: 80 }),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true })
+  },
+  (table) => ({
+    tokenIdx: uniqueIndex("user_sessions_token_idx").on(table.sessionTokenHash),
+    userExpiresIdx: index("user_sessions_user_expires_idx").on(table.userId, table.expiresAt),
+    activeIdx: index("user_sessions_active_idx").on(table.expiresAt, table.revokedAt)
+  })
+);
+
+export const userAuditEvents = pgTable(
+  "user_audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id").references(() => properties.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => appUsers.id, { onDelete: "set null" }),
+    targetUserId: uuid("target_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+    action: varchar("action", { length: 120 }).notNull(),
+    reason: varchar("reason", { length: 180 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    propertyCreatedIdx: index("user_audit_events_property_created_idx").on(
+      table.propertyId,
+      table.createdAt
+    ),
+    userCreatedIdx: index("user_audit_events_user_created_idx").on(table.userId, table.createdAt),
+    targetUserCreatedIdx: index("user_audit_events_target_user_created_idx").on(
+      table.targetUserId,
+      table.createdAt
+    )
+  })
+);
+
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .references(() => appUsers.id, { onDelete: "cascade" })
+      .notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    tokenIdx: uniqueIndex("password_reset_tokens_token_idx").on(table.tokenHash),
+    userExpiresIdx: index("password_reset_tokens_user_expires_idx").on(table.userId, table.expiresAt)
   })
 );
 
@@ -1093,6 +1238,8 @@ export const systemEvents = pgTable(
 export const propertiesRelations = relations(properties, ({ many }) => ({
   apartments: many(apartments),
   residents: many(residents),
+  userMemberships: many(userPropertyMemberships),
+  userAuditEvents: many(userAuditEvents),
   chargers: many(chargers),
   tariffs: many(tariffs),
   deviceCommands: many(deviceCommands),
@@ -1125,7 +1272,8 @@ export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
   ruleEvaluations: many(ruleEvaluations),
   sessionAudits: many(sessionAudits),
   billingCycleItems: many(billingCycleItems),
-  billingCycleSessionItems: many(billingCycleSessionItems)
+  billingCycleSessionItems: many(billingCycleSessionItems),
+  userMemberships: many(userPropertyMemberships)
 }));
 
 export const residentsRelations = relations(residents, ({ one, many }) => ({
@@ -1147,7 +1295,8 @@ export const residentsRelations = relations(residents, ({ one, many }) => ({
   billingRecords: many(billingRecords),
   sessionAudits: many(sessionAudits),
   billingCycleItems: many(billingCycleItems),
-  billingCycleSessionItems: many(billingCycleSessionItems)
+  billingCycleSessionItems: many(billingCycleSessionItems),
+  userMemberships: many(userPropertyMemberships)
 }));
 
 export const residentCredentialsRelations = relations(residentCredentials, ({ one, many }) => ({
@@ -1169,6 +1318,64 @@ export const residentCredentialsRelations = relations(residentCredentials, ({ on
   }),
   events: many(credentialEvents),
   authorizationAttempts: many(authorizationAttempts)
+}));
+
+export const appUsersRelations = relations(appUsers, ({ many }) => ({
+  memberships: many(userPropertyMemberships),
+  sessions: many(userSessions),
+  auditEvents: many(userAuditEvents, { relationName: "actorUserAuditEvents" }),
+  targetedAuditEvents: many(userAuditEvents, { relationName: "targetUserAuditEvents" }),
+  passwordResetTokens: many(passwordResetTokens)
+}));
+
+export const userPropertyMembershipsRelations = relations(userPropertyMemberships, ({ one }) => ({
+  user: one(appUsers, {
+    fields: [userPropertyMemberships.userId],
+    references: [appUsers.id]
+  }),
+  property: one(properties, {
+    fields: [userPropertyMemberships.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [userPropertyMemberships.residentId],
+    references: [residents.id]
+  }),
+  apartment: one(apartments, {
+    fields: [userPropertyMemberships.apartmentId],
+    references: [apartments.id]
+  })
+}));
+
+export const userSessionsRelations = relations(userSessions, ({ one }) => ({
+  user: one(appUsers, {
+    fields: [userSessions.userId],
+    references: [appUsers.id]
+  })
+}));
+
+export const userAuditEventsRelations = relations(userAuditEvents, ({ one }) => ({
+  property: one(properties, {
+    fields: [userAuditEvents.propertyId],
+    references: [properties.id]
+  }),
+  user: one(appUsers, {
+    fields: [userAuditEvents.userId],
+    references: [appUsers.id],
+    relationName: "actorUserAuditEvents"
+  }),
+  targetUser: one(appUsers, {
+    fields: [userAuditEvents.targetUserId],
+    references: [appUsers.id],
+    relationName: "targetUserAuditEvents"
+  })
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(appUsers, {
+    fields: [passwordResetTokens.userId],
+    references: [appUsers.id]
+  })
 }));
 
 export const chargersRelations = relations(chargers, ({ one, many }) => ({

@@ -3,7 +3,7 @@
 import { History, Home, IdCard, LineChart, PlugZap, UserRound } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { cn } from "@voltaria/ui";
-import { mobileResident } from "@voltaria/shared";
+import type { CurrentUser } from "@voltaria/db";
 
 const mobileNav = [
   { href: "/mobile/home", label: "Home", icon: Home },
@@ -14,8 +14,22 @@ const mobileNav = [
   { href: "/mobile/account", label: "Account", icon: UserRound }
 ];
 
-export function MobileShell({ children }: { children: React.ReactNode }) {
+export function MobileShell({
+  children,
+  currentUser
+}: {
+  children: React.ReactNode;
+  currentUser: CurrentUser;
+}) {
   const pathname = usePathname();
+  const residentLabel =
+    currentUser.activeMembership?.apartmentNumber ?? currentUser.fullName ?? "Voltaria";
+  const initials = currentUser.fullName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -24,10 +38,10 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
           <div className="flex min-w-0 items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.22em] text-cyan">Voltaria</p>
-              <h1 className="mt-1 truncate text-lg font-semibold text-foreground">{mobileResident.apartmentNumber}</h1>
+              <h1 className="mt-1 truncate text-lg font-semibold text-foreground">{residentLabel}</h1>
             </div>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-panel2 text-sm font-semibold text-success">
-              {mobileResident.initials}
+              {initials || "V"}
             </div>
           </div>
         </header>

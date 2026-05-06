@@ -16,6 +16,7 @@ import {
   type PropertyAccessRuleUpdateInput,
   type ResidentAccessOverrideUpdateInput
 } from "@voltaria/shared";
+import { requireActionPermission } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -28,6 +29,7 @@ type RuleActionResult = {
 export async function updatePropertyAccessRuleAction(
   input: PropertyAccessRuleUpdateInput
 ): Promise<RuleActionResult> {
+  await requireActionPermission("rules.manage");
   const parsed = propertyAccessRuleUpdateSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -44,7 +46,7 @@ export async function updatePropertyAccessRuleAction(
 export async function setOutletAccessOverrideAction(
   input: OutletAccessOverrideUpdateInput
 ): Promise<RuleActionResult> {
-  // TODO(auth): require an authenticated operator role before changing live outlet access.
+  await requireActionPermission("outlets.maintenance");
   const parsed = outletAccessOverrideUpdateSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -61,7 +63,7 @@ export async function setOutletAccessOverrideAction(
 export async function setResidentAccessOverrideAction(
   input: ResidentAccessOverrideUpdateInput
 ): Promise<RuleActionResult> {
-  // TODO(auth): require an authenticated operator role before changing resident access.
+  await requireActionPermission("residents.manage");
   const parsed = residentAccessOverrideUpdateSchema.safeParse(input);
 
   if (!parsed.success) {

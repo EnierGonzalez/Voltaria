@@ -490,6 +490,9 @@ function SettingsModule() {
         <a href="/settings/rules">
           <SettingItem icon={<Gauge className="h-5 w-5" aria-hidden="true" />} title="Reglas operativas" value="Métodos, límites, horarios y overrides" />
         </a>
+        <a href="/settings/users">
+          <SettingItem icon={<UserRound className="h-5 w-5" aria-hidden="true" />} title="Usuarios y roles" value="Acceso interno, permisos y sesiones seguras" />
+        </a>
         <a href="/rfid-simulator">
           <SettingItem icon={<Zap className="h-5 w-5" aria-hidden="true" />} title="RFID Simulator" value="Herramienta dev para taps RFID simulados" />
         </a>

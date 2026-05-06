@@ -9,37 +9,55 @@ const publicPrefixes = [
 ];
 
 const publicPaths = ["/favicon.ico", "/manifest.webmanifest", "/robots.txt"];
+const authPublicPaths = ["/login", "/403"];
+const sessionCookieName = "voltaria_session";
 
 export function middleware(request: NextRequest) {
-  if (process.env.STAGING_ACCESS_ENABLED !== "true") {
-    return NextResponse.next();
-  }
-
   const pathname = request.nextUrl.pathname;
 
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  const username = process.env.STAGING_ACCESS_USERNAME?.trim();
-  const password = process.env.STAGING_ACCESS_PASSWORD?.trim();
+  if (process.env.STAGING_ACCESS_ENABLED === "true") {
+    const username = process.env.STAGING_ACCESS_USERNAME?.trim();
+    const password = process.env.STAGING_ACCESS_PASSWORD?.trim();
 
-  if (!username || !password || password === "change-me") {
-    return new NextResponse("Staging access is not configured.", { status: 503 });
+    if (!username || !password || password === "change-me") {
+      return new NextResponse("Staging access is not configured.", { status: 503 });
+    }
+
+    const authorization = request.headers.get("authorization");
+
+    if (!isAuthorized(authorization, username, password)) {
+      return new NextResponse("Authentication required.", {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Basic realm="Voltaria Staging"'
+        }
+      });
+    }
   }
 
-  const authorization = request.headers.get("authorization");
-
-  if (!isAuthorized(authorization, username, password)) {
-    return new NextResponse("Authentication required.", {
-      status: 401,
-      headers: {
-        "WWW-Authenticate": 'Basic realm="Voltaria Staging"'
-      }
-    });
+  if (authPublicPaths.includes(pathname)) {
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  const hasSessionCookie = Boolean(request.cookies.get(sessionCookieName)?.value);
+
+  if (hasSessionCookie) {
+    return NextResponse.next();
+  }
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+  }
+
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = "/login";
+  loginUrl.search = "";
+  loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {

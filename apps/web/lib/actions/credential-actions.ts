@@ -22,6 +22,7 @@ import {
   recordIdSchema,
   rfidTagSchema
 } from "@voltaria/shared";
+import { requireActionPermission } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -30,6 +31,7 @@ export async function createManualRfidCredentialAction(input: {
   rawIdTag: string;
   label?: string;
 }): Promise<CredentialServiceResult> {
+  await requireActionPermission("credentials.manage");
   const residentId = recordIdSchema.safeParse(input.residentId);
   const rawIdTag = rfidTagSchema.safeParse(input.rawIdTag);
   const label = input.label ? credentialLabelSchema.safeParse(input.label) : null;
@@ -65,6 +67,7 @@ export async function startCredentialEnrollmentAction(input: {
   oldCredentialId?: string;
   reason?: string;
 }): Promise<CredentialServiceResult> {
+  await requireActionPermission("credentials.manage");
   const residentId = recordIdSchema.safeParse(input.residentId);
   const accessDeviceId = input.accessDeviceId ? recordIdSchema.safeParse(input.accessDeviceId) : null;
   const oldCredentialId = input.oldCredentialId ? recordIdSchema.safeParse(input.oldCredentialId) : null;
@@ -107,6 +110,7 @@ export async function replaceCredentialStartAction(input: {
   reason: string;
   accessDeviceId?: string;
 }): Promise<CredentialServiceResult> {
+  await requireActionPermission("credentials.replace");
   const credentialId = recordIdSchema.safeParse(input.credentialId);
   const accessDeviceId = input.accessDeviceId ? recordIdSchema.safeParse(input.accessDeviceId) : null;
   const reason = credentialDisableReasonSchema.safeParse(input.reason);
@@ -128,6 +132,7 @@ export async function replaceCredentialStartAction(input: {
 }
 
 export async function cancelCredentialEnrollmentAction(enrollmentId: string): Promise<CredentialServiceResult> {
+  await requireActionPermission("credentials.manage");
   const parsed = recordIdSchema.safeParse(enrollmentId);
 
   if (!parsed.success) {
@@ -142,6 +147,7 @@ export async function cancelCredentialEnrollmentAction(enrollmentId: string): Pr
 }
 
 export async function getEnrollmentStatusAction(enrollmentId: string) {
+  await requireActionPermission("credentials.view");
   const parsed = recordIdSchema.safeParse(enrollmentId);
 
   if (!parsed.success) {
@@ -164,18 +170,22 @@ export async function getEnrollmentStatusAction(enrollmentId: string) {
 }
 
 export async function disableCredentialAction(credentialId: string, reason: string) {
+  await requireActionPermission("credentials.disable");
   return updateCredentialStatusAction(credentialId, reason, "disabled");
 }
 
 export async function markCredentialLostAction(credentialId: string) {
+  await requireActionPermission("credentials.disable");
   return updateCredentialStatusAction(credentialId, "lost", "lost");
 }
 
 export async function markCredentialStolenAction(credentialId: string) {
+  await requireActionPermission("credentials.disable");
   return updateCredentialStatusAction(credentialId, "stolen", "stolen");
 }
 
 export async function markCredentialDamagedAction(credentialId: string) {
+  await requireActionPermission("credentials.disable");
   return updateCredentialStatusAction(credentialId, "damaged", "damaged");
 }
 

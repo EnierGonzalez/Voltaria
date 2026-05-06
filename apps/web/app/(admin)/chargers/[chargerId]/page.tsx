@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ChargerDetail } from "@/components/charger-detail";
 import { getChargerDetailPageData } from "@/lib/data";
+import { requirePagePermission } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export default async function ChargerDetailPage({
 }: {
   params: Promise<{ chargerId: string }>;
 }) {
+  await requirePagePermission("outlets.view", "/chargers");
   const { chargerId } = await params;
   const data = await getChargerDetailPageData(chargerId);
 

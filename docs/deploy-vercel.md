@@ -54,6 +54,11 @@ DATABASE_POOLED_URL=<Neon pooled URL para runtime serverless>
 DATABASE_URL=<Neon direct URL para tareas manuales, no para build automático>
 RFID_HASH_SECRET=<secret estable>
 RFID_READER_API_KEY=<secret para lectores>
+AUTH_SESSION_SECRET=<secret estable para cookies>
+AUTH_SESSION_HOURS=12
+FIRST_OWNER_EMAIL=<owner inicial>
+FIRST_OWNER_PASSWORD=<password temporal solo para seed manual>
+FIRST_OWNER_NAME=<nombre owner>
 STAGING_ACCESS_ENABLED=true
 STAGING_ACCESS_USERNAME=<usuario>
 STAGING_ACCESS_PASSWORD=<password fuerte>
@@ -66,6 +71,8 @@ Notas:
 - `DATABASE_URL` se mantiene como conexión directa para migraciones y seed desde local.
 - Si `APP_ENV` no es `development`, `RFID_HASH_SECRET` no puede faltar ni ser placeholder.
 - Si `APP_ENV` no es `development`, `/api/rfid/event` exige `RFID_READER_API_KEY`.
+- Si `APP_ENV` no es `development`, `AUTH_SESSION_SECRET` debe estar configurado y no puede ser placeholder.
+- `FIRST_OWNER_*` se usa al correr `pnpm db:seed` manualmente; Vercel no debe ejecutar seed.
 - No imprimas ni pegues valores reales en README, issues o logs.
 
 ## No ejecutar en Vercel
@@ -79,7 +86,9 @@ El simulador de tomas sigue siendo un proceso local/separado. Vercel solo sirve 
 
 ## Protección staging
 
-`STAGING_ACCESS_ENABLED=true` activa Basic Auth por middleware para UI admin/mobile y endpoints administrativos. Quedan públicos:
+`STAGING_ACCESS_ENABLED=true` activa Basic Auth por middleware como candado externo temporal. El acceso principal es el login interno en `/login`; cuando ya esté validado en Vercel puedes cambiar `STAGING_ACCESS_ENABLED=false`.
+
+Quedan públicos sin Basic Auth:
 
 - `/_next/*`
 - `/favicon.ico`
@@ -90,6 +99,18 @@ El simulador de tomas sigue siendo un proceso local/separado. Vercel solo sirve 
 - `/api/rfid/event`
 
 `/api/rfid/event` no usa Basic Auth; se protege con `X-Voltaria-Reader-Key` cuando `RFID_READER_API_KEY` está configurada.
+
+## Login interno
+
+1. Corre localmente `pnpm db:migrate` y `pnpm db:seed` con `FIRST_OWNER_EMAIL` y `FIRST_OWNER_PASSWORD` configurados.
+2. Abre `/login` en staging.
+3. Inicia sesión con el owner seed.
+4. Cambia la contraseña cuando lo solicite.
+5. Crea usuarios operativos desde `/settings/users`.
+6. Prueba roles:
+   - `accounting`: billing/audit/exportaciones.
+   - `operations`: tomas y sesiones.
+   - `resident`: PWA móvil.
 
 ## Demo tools
 

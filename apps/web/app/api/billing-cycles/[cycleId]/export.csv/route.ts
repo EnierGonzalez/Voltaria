@@ -6,6 +6,7 @@ import {
   loadDatabaseEnv
 } from "@voltaria/db";
 import { recordIdSchema, toCsv } from "@voltaria/shared";
+import { getCurrentUser } from "@/lib/auth";
 
 loadDatabaseEnv();
 
@@ -16,6 +17,16 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ cycleId: string }> }
 ) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
+  }
+
+  if (!user.permissions.includes("billing.export")) {
+    return NextResponse.json({ error: "No tienes permiso para exportar cortes." }, { status: 403 });
+  }
+
   const { cycleId } = await params;
   const parsed = recordIdSchema.safeParse(cycleId);
 

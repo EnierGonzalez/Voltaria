@@ -39,6 +39,11 @@ export function hasReaderApiKey() {
   return Boolean(value && !placeholderSecrets.has(value));
 }
 
+export function hasAuthSessionSecret() {
+  const value = process.env.AUTH_SESSION_SECRET?.trim();
+  return Boolean(value && !placeholderSecrets.has(value));
+}
+
 export function getDeploymentConfigStatus() {
   const appEnv = getAppEnv();
   const stagingAccessEnabled = process.env.STAGING_ACCESS_ENABLED === "true";
@@ -49,6 +54,7 @@ export function getDeploymentConfigStatus() {
   );
   const rfidHashConfigured = hasSafeRfidHashSecret();
   const readerKeyConfigured = hasReaderApiKey();
+  const authSessionSecretConfigured = hasAuthSessionSecret();
   const databaseConfigured = Boolean(getRuntimeDatabaseUrl());
   const issues: string[] = [];
 
@@ -64,6 +70,10 @@ export function getDeploymentConfigStatus() {
     issues.push("rfid_reader_api_key_missing_or_placeholder");
   }
 
+  if (appEnv !== "development" && !authSessionSecretConfigured) {
+    issues.push("auth_session_secret_missing_or_placeholder");
+  }
+
   if (stagingAccessEnabled && (!stagingUsernameConfigured || !stagingPasswordConfigured)) {
     issues.push("staging_access_credentials_missing_or_placeholder");
   }
@@ -75,6 +85,7 @@ export function getDeploymentConfigStatus() {
     demoToolsEnabled: isDemoToolsEnabled(),
     rfidHashSecretConfigured: rfidHashConfigured,
     rfidReaderApiKeyConfigured: readerKeyConfigured,
+    authSessionSecretConfigured,
     stagingAccessEnabled,
     stagingAccessConfigured: !stagingAccessEnabled || (stagingUsernameConfigured && stagingPasswordConfigured),
     vercelUrlConfigured: Boolean(process.env.VERCEL_URL?.trim()),
