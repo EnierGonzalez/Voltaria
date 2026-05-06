@@ -48,6 +48,7 @@ export async function stopMobileOutletSession(sessionId: string): Promise<Outlet
 }
 
 export async function adminStopOutletSession(sessionId: string): Promise<OutletActionResult> {
+  // TODO(auth): require an authenticated operator role before enabling this outside demo/staging.
   const parsed = recordIdSchema.safeParse(sessionId);
 
   if (!parsed.success) {
@@ -62,6 +63,7 @@ export async function adminStopOutletSession(sessionId: string): Promise<OutletA
 }
 
 export async function adminDisableOutlet(outletId: string): Promise<OutletActionResult> {
+  // TODO(auth): require an authenticated operator role before enabling this outside demo/staging.
   const parsed = recordIdSchema.safeParse(outletId);
 
   if (!parsed.success) {
@@ -76,6 +78,7 @@ export async function adminDisableOutlet(outletId: string): Promise<OutletAction
 }
 
 export async function adminEnableOutlet(outletId: string): Promise<OutletActionResult> {
+  // TODO(auth): require an authenticated operator role before enabling this outside demo/staging.
   const parsed = recordIdSchema.safeParse(outletId);
 
   if (!parsed.success) {

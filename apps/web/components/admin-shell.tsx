@@ -10,6 +10,7 @@ import {
   PlugZap,
   RadioTower,
   Settings,
+  ShieldCheck,
   TriangleAlert,
   UsersRound,
   Zap
@@ -25,6 +26,7 @@ const navItems = [
   { label: "Sessions", href: "/sessions", icon: Zap },
   { label: "Residents", href: "/residents", icon: UsersRound },
   { label: "Billing", href: "/billing", icon: CreditCard },
+  { label: "Audit", href: "/audit", icon: ShieldCheck },
   { label: "Consumption", href: "/consumption", icon: ChartSpline },
   { label: "Alerts", href: "/alerts", icon: TriangleAlert, badge: "3" },
   { label: "Reports", href: "/reports", icon: FileText },
@@ -39,11 +41,14 @@ const titleByPath: Record<string, string> = {
   "/sessions": "Sessions",
   "/residents": "Residents",
   "/billing": "Billing",
+  "/billing/cycles": "Ciclos de corte",
+  "/audit": "Auditoría",
   "/consumption": "Consumption",
   "/alerts": "Alerts",
   "/reports": "Reports",
   "/rfid-simulator": "RFID Simulator",
   "/settings": "Settings",
+  "/settings/deployment": "Deployment",
   "/settings/rules": "Reglas operativas"
 };
 
@@ -55,8 +60,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       ? "Detalle de punto"
       : pathname.startsWith("/outlets")
         ? "Tomas 120V"
+        : pathname.startsWith("/billing/cycles")
+          ? "Detalle de corte"
+        : pathname.startsWith("/audit")
+          ? "Auditoría"
         : pathname.startsWith("/settings/rules")
           ? "Reglas operativas"
+        : pathname.startsWith("/settings/deployment")
+          ? "Deployment"
       : pathname.startsWith("/sessions/")
         ? "Session Detail"
         : "Voltaria");

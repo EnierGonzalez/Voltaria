@@ -20,7 +20,18 @@ export function maskRfidTag(rawOrNormalized: string) {
 
 export function hashRfidTag(rawOrNormalized: string) {
   const normalized = normalizeRfidTag(rawOrNormalized);
-  const secret = process.env.RFID_HASH_SECRET?.trim() || DEV_RFID_HASH_SECRET;
+  const configuredSecret = process.env.RFID_HASH_SECRET?.trim();
+  const appEnv = process.env.APP_ENV?.trim() || "development";
+  const insecureSecret =
+    !configuredSecret ||
+    configuredSecret === "change-me-before-real-cards" ||
+    configuredSecret === "change-me-in-production";
+
+  if (appEnv !== "development" && insecureSecret) {
+    throw new Error("RFID_HASH_SECRET must be configured before using RFID outside development.");
+  }
+
+  const secret = insecureSecret ? DEV_RFID_HASH_SECRET : configuredSecret!;
 
   if (secret === DEV_RFID_HASH_SECRET && !warnedAboutDevSecret) {
     warnedAboutDevSecret = true;

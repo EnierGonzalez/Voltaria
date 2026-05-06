@@ -167,6 +167,39 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
+          title="kWh facturable"
+          value={formatKwh(data.dashboardStats.billableKwhMonth)}
+          delta="Mes actual auditado"
+          tone="success"
+        />
+        <StatCard
+          title="Monto facturable"
+          value={formatCurrency(data.dashboardStats.billableAmountMonth)}
+          delta="Estimado interno"
+          tone="primary"
+        />
+        <StatCard
+          title="Revisión cobro"
+          value={data.dashboardStats.sessionsPendingReview.toString()}
+          delta="Sesiones pendientes"
+          tone="warning"
+        />
+        <StatCard
+          title="Cortes abiertos"
+          value={data.dashboardStats.openBillingCycles.toString()}
+          delta="Draft/revisión/aprobados"
+          tone="cyan"
+        />
+        <StatCard
+          title="Excluidas"
+          value={data.dashboardStats.excludedSessions.toString()}
+          delta={`${data.dashboardStats.warningSessions} con warning`}
+          tone="warning"
+        />
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard
           title="Rechazos hoy"
           value={data.dashboardStats.rejectedSessionsToday.toString()}
           delta="Decisiones denied del motor"

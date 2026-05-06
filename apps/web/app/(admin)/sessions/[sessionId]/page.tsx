@@ -22,6 +22,10 @@ export default async function SessionDetailPage({
       events={data.events}
       meterValues={data.meterValues}
       logs={data.logs}
+      commands={data.commands}
+      ruleEvaluations={data.ruleEvaluations}
+      authorizationAttempts={data.authorizationAttempts}
+      audit={data.audit}
     />
   );
 }

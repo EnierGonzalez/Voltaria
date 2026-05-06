@@ -95,6 +95,52 @@ export const residentAccessOverrideUpdateSchema = z.object({
   notes: z.string().trim().max(500).optional()
 });
 
+export const billingCycleDateSchema = z.coerce.date();
+
+export const billingCycleCreateSchema = z
+  .object({
+    propertyId: recordIdSchema.optional(),
+    periodStart: billingCycleDateSchema,
+    periodEnd: billingCycleDateSchema,
+    createdBy: z.string().trim().max(120).optional()
+  })
+  .refine((value) => value.periodEnd > value.periodStart, {
+    message: "El fin del periodo debe ser posterior al inicio.",
+    path: ["periodEnd"]
+  });
+
+export const billingCycleIdSchema = z.object({
+  billingCycleId: recordIdSchema
+});
+
+export const auditReviewUpdateSchema = z.object({
+  sessionId: recordIdSchema,
+  notes: z.string().trim().max(1000).optional(),
+  reviewedBy: z.string().trim().max(120).optional()
+});
+
+export const auditBillingStatusUpdateSchema = z.object({
+  sessionId: recordIdSchema,
+  reason: z.string().trim().min(2).max(180)
+});
+
+export const billingCycleItemAdjustmentSchema = z.object({
+  itemId: recordIdSchema,
+  adjustmentAmount: z.coerce.number().finite(),
+  adjustmentReason: z.string().trim().min(2).max(180)
+});
+
+export const reportsPeriodQuerySchema = z
+  .object({
+    propertyId: recordIdSchema.optional(),
+    startDate: billingCycleDateSchema,
+    endDate: billingCycleDateSchema
+  })
+  .refine((value) => value.endDate > value.startDate, {
+    message: "El fin del periodo debe ser posterior al inicio.",
+    path: ["endDate"]
+  });
+
 export const sessionTelemetrySchema = z.object({
   propertyId: propertyIdSchema,
   chargerId: z.string().min(1),
@@ -123,3 +169,11 @@ export type PropertyAccessRuleUpdateInput = z.infer<typeof propertyAccessRuleUpd
 export type OutletAccessOverrideUpdateInput = z.infer<typeof outletAccessOverrideUpdateSchema>;
 
 export type ResidentAccessOverrideUpdateInput = z.infer<typeof residentAccessOverrideUpdateSchema>;
+
+export type BillingCycleCreateInput = z.infer<typeof billingCycleCreateSchema>;
+
+export type AuditReviewUpdateInput = z.infer<typeof auditReviewUpdateSchema>;
+
+export type AuditBillingStatusUpdateInput = z.infer<typeof auditBillingStatusUpdateSchema>;
+
+export type BillingCycleItemAdjustmentInput = z.infer<typeof billingCycleItemAdjustmentSchema>;

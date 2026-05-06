@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
 import { createDbClient, handleRfidTap, loadDatabaseEnv } from "@voltaria/db";
 import { rfidReaderEventSchema } from "@voltaria/shared";
+import { getAppEnv, hasReaderApiKey } from "@/lib/deployment";
 
 loadDatabaseEnv();
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 let warnedMissingReaderKey = false;
 
 export async function POST(request: Request) {
   const configuredKey = process.env.RFID_READER_API_KEY?.trim();
+  const appEnv = getAppEnv();
+
+  if (appEnv !== "development" && !hasReaderApiKey()) {
+    return NextResponse.json(
+      { result: "rejected", reason: "reader_key_not_configured", message: "Reader key no configurada." },
+      { status: 503 }
+    );
+  }
 
   if (configuredKey && request.headers.get("x-voltaria-reader-key") !== configuredKey) {
     return NextResponse.json(

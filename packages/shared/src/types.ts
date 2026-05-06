@@ -28,6 +28,30 @@ export type OvercurrentAction = "alert_only" | "stop_session";
 
 export type RuleEvaluationResult = "allowed" | "denied";
 
+export type SessionAuditStatus = "valid" | "warning" | "failed" | "needs_review";
+
+export type EnergyAuditStatus =
+  | "normal"
+  | "zero_consumption"
+  | "low_consumption"
+  | "suspicious_spike"
+  | "missing_meter_values"
+  | "meter_mismatch";
+
+export type CommandAuditStatus =
+  | "normal"
+  | "missing_enable_ack"
+  | "missing_disable_ack"
+  | "command_timeout";
+
+export type RuleAuditStatus = "normal" | "stopped_by_rule" | "denied_before_start";
+
+export type AuditBillingStatus = "billable" | "not_billable" | "excluded" | "pending_review";
+
+export type BillingCycleStatus = "draft" | "reviewing" | "approved" | "exported" | "closed";
+
+export type BillingCycleItemStatus = "draft" | "approved" | "excluded" | "adjusted";
+
 export type RfidCredentialStatus = "active" | "suspended";
 
 export type CredentialType = "rfid" | "qr" | "pin";
@@ -123,6 +147,12 @@ export type ChargingSessionSummary = {
   status: SessionStatus;
   statusLabel: string;
   activationMethod?: ActivationMethod;
+  activationMethodLabel?: string;
+  auditStatus?: SessionAuditStatus;
+  auditStatusLabel?: string;
+  billingStatus?: AuditBillingStatus;
+  billingStatusLabel?: string;
+  stopReason?: string;
   startedAt: string;
   endedAt?: string;
   shortDate: string;
@@ -237,6 +267,99 @@ export type DeviceCommandSummary = {
   acknowledgedAt?: string;
 };
 
+export type SessionAuditSummary = {
+  id: string;
+  propertyId: PropertyId;
+  sessionId: string;
+  residentId?: string;
+  apartmentId?: string;
+  outletId?: string;
+  residentName: string;
+  apartmentNumber: string;
+  outletCode: string;
+  sessionStartedAt: string;
+  deliveredKwh: number;
+  amount: number;
+  auditStatus: SessionAuditStatus;
+  auditStatusLabel: string;
+  energyStatus: EnergyAuditStatus;
+  energyStatusLabel: string;
+  commandStatus: CommandAuditStatus;
+  commandStatusLabel: string;
+  ruleStatus: RuleAuditStatus;
+  ruleStatusLabel: string;
+  billingStatus: AuditBillingStatus;
+  billingStatusLabel: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  notes?: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillingCycleSummary = {
+  id: string;
+  propertyId: PropertyId;
+  name: string;
+  periodStart: string;
+  periodEnd: string;
+  status: BillingCycleStatus;
+  statusLabel: string;
+  totalKwh: number;
+  totalAmount: number;
+  totalSessions: number;
+  createdAt: string;
+  approvedAt?: string;
+};
+
+export type BillingCycleItemSummary = {
+  id: string;
+  billingCycleId: string;
+  propertyId: PropertyId;
+  residentId?: string;
+  apartmentId: string;
+  apartmentNumber: string;
+  residentName: string;
+  totalKwh: number;
+  totalAmount: number;
+  adjustmentAmount?: number;
+  adjustmentReason?: string;
+  finalAmount: number;
+  totalSessions: number;
+  validSessions: number;
+  warningSessions: number;
+  excludedSessions: number;
+  status: BillingCycleItemStatus;
+  statusLabel: string;
+  notes?: string;
+};
+
+export type BillingCycleSessionItemSummary = {
+  id: string;
+  billingCycleId: string;
+  billingCycleItemId: string;
+  sessionId: string;
+  residentName: string;
+  apartmentNumber: string;
+  outletCode: string;
+  startedAt: string;
+  energyDeliveredKwh: number;
+  amount: number;
+  auditStatus: SessionAuditStatus;
+  auditStatusLabel: string;
+  billingStatus: AuditBillingStatus;
+  billingStatusLabel: string;
+  included: boolean;
+  exclusionReason?: string;
+};
+
+export type BillingCycleDetail = {
+  cycle: BillingCycleSummary;
+  items: BillingCycleItemSummary[];
+  sessions: BillingCycleSessionItemSummary[];
+};
+
 export type RfidCredentialSummary = {
   id: string;
   propertyId: PropertyId;
@@ -255,6 +378,28 @@ export type CredentialEventSummary = {
   action: string;
   reason?: string;
   performedBy?: string;
+  createdAt: string;
+};
+
+export type RuleEvaluationSummary = {
+  id: string;
+  propertyId: PropertyId;
+  sessionId?: string;
+  method: ActivationMethod;
+  result: RuleEvaluationResult;
+  reason: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type AuthorizationAttemptSummary = {
+  id: string;
+  propertyId: PropertyId;
+  sessionId?: string;
+  method: ActivationMethod;
+  result: AuthorizationAttemptResult;
+  reason?: string;
+  maskedValue?: string;
   createdAt: string;
 };
 

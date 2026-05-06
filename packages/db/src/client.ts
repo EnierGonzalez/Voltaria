@@ -1,15 +1,23 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { assertDirectDatabaseUrl, getDatabaseUrl, getRequiredDatabaseUrl } from "./env";
+import {
+  assertDirectDatabaseUrl,
+  assertValidDatabaseUrl,
+  getMigrationDatabaseUrl,
+  getRequiredMigrationDatabaseUrl,
+  getRequiredRuntimeDatabaseUrl,
+  getRuntimeDatabaseUrl
+} from "./env";
 import * as schema from "./schema";
 
 export type VoltariaDb = ReturnType<typeof createDbClient>["db"];
 
-export function createDbClient(databaseUrl = getRequiredDatabaseUrl()) {
-  assertDirectDatabaseUrl(databaseUrl);
+export function createDbClient(databaseUrl = getRequiredRuntimeDatabaseUrl()) {
+  assertValidDatabaseUrl(databaseUrl, "Runtime database URL");
+  const isPooledRuntimeUrl = databaseUrl === getRuntimeDatabaseUrl() && Boolean(process.env.DATABASE_POOLED_URL?.trim());
 
   const client = postgres(databaseUrl, {
-    max: 10,
+    max: isPooledRuntimeUrl ? 1 : 10,
     prepare: false
   });
 
@@ -19,8 +27,13 @@ export function createDbClient(databaseUrl = getRequiredDatabaseUrl()) {
   };
 }
 
+export function createMigrationDbClient(databaseUrl = getRequiredMigrationDatabaseUrl()) {
+  assertDirectDatabaseUrl(databaseUrl, "DATABASE_URL");
+  return createDbClient(databaseUrl);
+}
+
 export function createDbClientIfConfigured() {
-  const databaseUrl = getDatabaseUrl();
+  const databaseUrl = getRuntimeDatabaseUrl();
 
   if (!databaseUrl) {
     return null;

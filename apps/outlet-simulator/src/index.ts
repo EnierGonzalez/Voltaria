@@ -1,10 +1,10 @@
-import { createDbClient, loadDatabaseEnv, runOutletSimulatorTick } from "@voltaria/db";
+import { createMigrationDbClient, loadDatabaseEnv, runOutletSimulatorTick } from "@voltaria/db";
 
 const POLL_INTERVAL_MS = 3_000;
 
 loadDatabaseEnv();
 
-const context = createDbClient();
+const context = createMigrationDbClient();
 let running = false;
 let shuttingDown = false;
 

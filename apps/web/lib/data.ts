@@ -1,6 +1,10 @@
 import {
+  auditSessionsForPeriod,
   createDbClientIfConfigured,
   getAlerts,
+  getAuthorizationAttemptsForSession,
+  getBillingCycleDetailSummary,
+  getBillingCycleSummaries,
   getBillingRecords,
   getChargers,
   getChargerById,
@@ -12,6 +16,7 @@ import {
   getDefaultProperty,
   getCurrentDemoResident,
   getDeviceCommandsForCharger,
+  getDeviceCommandsForSession,
   getCredentialEventsForResident,
   getAccessScheduleWindowSummaries,
   getMeterValueSeries,
@@ -24,6 +29,9 @@ import {
   getResidentCredentialSummaries,
   getResidentRfidCredential,
   getResidents,
+  getRuleEvaluationsForSession,
+  getSessionAuditSummaries,
+  getSessionAuditSummaryBySessionId,
   getSessionById,
   getTariffs,
   loadDatabaseEnv
@@ -47,6 +55,9 @@ import {
   weeklyConsumptionSeries,
   type AlertSummary,
   type AccessDeviceSummary,
+  type AuthorizationAttemptSummary,
+  type BillingCycleDetail,
+  type BillingCycleSummary,
   type BillingRecordSummary,
   type ChargerSummary,
   type ChargingSessionSummary,
@@ -63,6 +74,8 @@ import {
   type ResidentAccessRuleSummary,
   type ResidentSummary,
   type RfidCredentialSummary,
+  type RuleEvaluationSummary,
+  type SessionAuditSummary,
   type SessionEventSummary,
   type TariffSummary
 } from "@voltaria/shared";
@@ -113,6 +126,10 @@ export type SessionDetailData = {
   events: SessionEventSummary[];
   meterValues: MeterValuePoint[];
   logs: OcppLogSummary[];
+  commands: DeviceCommandSummary[];
+  ruleEvaluations: RuleEvaluationSummary[];
+  authorizationAttempts: AuthorizationAttemptSummary[];
+  audit: SessionAuditSummary | null;
 };
 
 export type MobileChargeData = {
@@ -136,6 +153,21 @@ export type RfidSimulatorPageData = {
 export type RulesSettingsPageData = {
   rule: PropertyAccessRuleSummary | null;
   schedules: AccessScheduleWindowSummary[];
+};
+
+export type AuditPageData = {
+  audits: SessionAuditSummary[];
+  sessions: ChargingSessionSummary[];
+};
+
+export type BillingPageData = {
+  cycles: BillingCycleSummary[];
+  audits: SessionAuditSummary[];
+  sessions: ChargingSessionSummary[];
+};
+
+export type BillingCycleDetailPageData = {
+  detail: BillingCycleDetail | null;
 };
 
 const mockDashboardData: DashboardPageData = {
@@ -334,7 +366,11 @@ export async function getSessionDetailPageData(sessionId: string): Promise<Sessi
       session: mockSession,
       events: sessionEvents.filter((event) => event.sessionId === sessionId),
       meterValues: meterValueSeries[sessionId] ?? [],
-      logs: ocppLogs.filter((log) => log.sessionId === sessionId)
+      logs: ocppLogs.filter((log) => log.sessionId === sessionId),
+      commands: [],
+      ruleEvaluations: [],
+      authorizationAttempts: [],
+      audit: null
     },
     async ({ db }) => {
       const session = await getSessionById(db, sessionId);
@@ -344,7 +380,11 @@ export async function getSessionDetailPageData(sessionId: string): Promise<Sessi
           session: mockSession,
           events: sessionEvents.filter((event) => event.sessionId === sessionId),
           meterValues: meterValueSeries[sessionId] ?? [],
-          logs: ocppLogs.filter((log) => log.sessionId === sessionId)
+          logs: ocppLogs.filter((log) => log.sessionId === sessionId),
+          commands: [],
+          ruleEvaluations: [],
+          authorizationAttempts: [],
+          audit: null
         };
       }
 
@@ -352,7 +392,11 @@ export async function getSessionDetailPageData(sessionId: string): Promise<Sessi
         session,
         events: [],
         meterValues: await getMeterValueSeries(db, session.id),
-        logs: await getOcppLogs(db, { chargerId: session.chargerId, sessionId: session.id })
+        logs: await getOcppLogs(db, { chargerId: session.chargerId, sessionId: session.id }),
+        commands: await getDeviceCommandsForSession(db, session.id),
+        ruleEvaluations: await getRuleEvaluationsForSession(db, session.id),
+        authorizationAttempts: await getAuthorizationAttemptsForSession(db, session.id),
+        audit: await getSessionAuditSummaryBySessionId(db, session.id)
       };
     }
   );
@@ -487,6 +531,64 @@ export async function getRulesSettingsPageData(): Promise<RulesSettingsPageData>
   );
 }
 
+export async function getAuditPageData(): Promise<AuditPageData> {
+  return withDatabaseFallback<AuditPageData>(
+    {
+      audits: [],
+      sessions: recentSessions
+    },
+    async ({ db }) => {
+      const property = await getDefaultProperty(db);
+
+      if (!property) {
+        return { audits: [], sessions: recentSessions };
+      }
+
+      const { start, end } = currentMonthRange();
+      await auditSessionsForPeriod(db, property.id, start, end);
+
+      return {
+        audits: await getSessionAuditSummaries(db, property.id, 200),
+        sessions: await getRecentSessions(db, property.id, 200)
+      };
+    }
+  );
+}
+
+export async function getBillingPageData(): Promise<BillingPageData> {
+  return withDatabaseFallback<BillingPageData>(
+    {
+      cycles: [],
+      audits: [],
+      sessions: recentSessions
+    },
+    async ({ db }) => {
+      const property = await getDefaultProperty(db);
+
+      if (!property) {
+        return { cycles: [], audits: [], sessions: recentSessions };
+      }
+
+      const { start, end } = currentMonthRange();
+      await auditSessionsForPeriod(db, property.id, start, end);
+
+      return {
+        cycles: await getBillingCycleSummaries(db, property.id),
+        audits: await getSessionAuditSummaries(db, property.id, 100),
+        sessions: await getRecentSessions(db, property.id, 100)
+      };
+    }
+  );
+}
+
+export async function getBillingCycleDetailPageData(
+  cycleId: string
+): Promise<BillingCycleDetailPageData> {
+  return withDatabaseFallback<BillingCycleDetailPageData>({ detail: null }, async ({ db }) => ({
+    detail: await getBillingCycleDetailSummary(db, cycleId)
+  }));
+}
+
 export async function getMobileAccessData(): Promise<MobileAccessSummary> {
   return withDatabaseFallback<MobileAccessSummary>(mobileAccessSummary, async ({ db }) => {
     const property = await getDefaultProperty(db);
@@ -557,4 +659,14 @@ async function safeSeries(
 ) {
   const series = await getConsumptionSeries(db, propertyId, range);
   return series.length > 0 ? series : fallback;
+}
+
+function currentMonthRange() {
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+
+  return { start, end };
 }

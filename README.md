@@ -67,6 +67,7 @@ Validación local:
 ```bash
 pnpm typecheck
 pnpm build
+pnpm build:web
 ```
 
 Rutas útiles:
@@ -201,6 +202,60 @@ Pruebas manuales:
 3. Método deshabilitado: en `/settings/rules`, desactiva `Móvil`, guarda e intenta iniciar desde PWA. RFID debe seguir permitido si continúa activo.
 4. Horario: cambia la ventana a un horario fuera del actual y valida que mobile/RFID respondan `outside_schedule`.
 5. No-load y sobrecorriente: deja correr `pnpm outlet:simulator`; el runtime usa los timeouts, umbral y acción configurados en la regla activa.
+
+## Billing and Audit
+
+La auditoría operativa vive en `packages/db/src/session-audit-service.ts`. Cada sesión puede generar un registro en `session_audits` con estado de auditoría, medición, comandos, reglas y estado de cobro. La lógica compara kWh declarados, `meter_values`, acknowledgements de `device_commands`, motivos de paro por regla y límites razonables para tomas 120V.
+
+La conciliación de cortes vive en `packages/db/src/billing-cycle-service.ts`. `billing_records` se conserva como resumen legacy/compatibilidad; la nueva fuente formal para cortes administrativos es `billing_cycles` junto con `billing_cycle_items` y `billing_cycle_session_items`.
+
+Rutas:
+
+- `/audit`: revisión operativa de sesiones, filtros, detalle y acciones de incluir/excluir de cobro.
+- `/reports/audit`: misma vista de auditoría desde reportes.
+- `/billing`: KPIs del periodo y creación de corte draft.
+- `/billing/cycles`: lista de cortes.
+- `/billing/cycles/[cycleId]`: detalle de corte, recalcular, aprobar, cerrar y exportar CSV.
+
+CSV directos:
+
+- `/api/billing-cycles/[cycleId]/export.csv`
+- `/api/reports/sessions.csv`
+- `/api/reports/audit.csv`
+
+No hay storage, PDF, email, pagos, CFDI/SAT ni bancos en esta fase. Cada exportación registra un `export_job` completado para trazabilidad.
+
+Flujo manual:
+
+1. Genera una sesión con mobile o RFID.
+2. Corre `pnpm outlet:simulator` para crear `meter_values`.
+3. Detén la sesión desde `/mobile/charge` o RFID.
+4. Abre `/audit` y revisa auditoría, medición, comandos y reglas.
+5. Abre `/billing`, selecciona periodo y crea un corte draft.
+6. Entra al detalle del corte para revisar departamentos/residentes, sesiones incluidas y warnings.
+7. Exporta CSV para cobro administrativo interno.
+
+Pruebas sugeridas:
+
+- Sesión normal completada con kWh mayor a cero.
+- Sesión completada sin consumo.
+- Sesión con falta de `meter_values`.
+- Sesión detenida por regla.
+- Corte mensual con sesiones cobrables y pendientes de revisión.
+- Export CSV de corte, sesiones y auditoría.
+
+## Deploy to Vercel Staging
+
+La guía completa está en `docs/deploy-vercel.md`.
+
+Resumen:
+
+- Vercel debe compilar solo `apps/web` con `pnpm build:web`.
+- Vercel no debe correr `pnpm db:migrate`, `pnpm db:seed`, `pnpm outlet:simulator` ni OCPP.
+- Runtime web usa `DATABASE_POOLED_URL` si existe; migraciones y seed siguen usando `DATABASE_URL` directa.
+- Staging/demo debe usar `STAGING_ACCESS_ENABLED=true` para Basic Auth temporal.
+- `/api/health`, `/api/db-health` y `/api/config-health` sirven para verificación post-deploy sin exponer secretos.
+- Este despliegue es staging/demo protegido, no producción pública.
 
 ## Auth
 

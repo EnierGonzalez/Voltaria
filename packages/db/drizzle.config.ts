@@ -1,10 +1,10 @@
 import { defineConfig } from "drizzle-kit";
-import { assertDirectDatabaseUrl, getRequiredDatabaseUrl } from "./src/env";
+import { assertDirectDatabaseUrl, getRequiredMigrationDatabaseUrl } from "./src/env";
 import { loadDatabaseEnv } from "./src/load-env";
 
 loadDatabaseEnv();
 
-const databaseUrl = getRequiredDatabaseUrl();
+const databaseUrl = getRequiredMigrationDatabaseUrl();
 assertDirectDatabaseUrl(databaseUrl);
 
 export default defineConfig({

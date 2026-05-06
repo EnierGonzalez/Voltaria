@@ -1,10 +1,10 @@
-import { ModulePage } from "@/components/module-page";
-import { getModulePageData } from "@/lib/data";
+import { BillingWorkspace } from "@/components/billing-workspace";
+import { getBillingPageData } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function BillingPage() {
-  const data = await getModulePageData();
+  const data = await getBillingPageData();
 
-  return <ModulePage module="billing" data={data} />;
+  return <BillingWorkspace cycles={data.cycles} audits={data.audits} sessions={data.sessions} />;
 }

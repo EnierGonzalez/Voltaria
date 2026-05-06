@@ -11,7 +11,7 @@ import {
   tariffs as mockTariffs,
   towerOutlets
 } from "@voltaria/shared";
-import { createDbClient } from "./client";
+import { createMigrationDbClient } from "./client";
 import { loadDatabaseEnv } from "./load-env";
 import { hashRfidTag, maskRfidTag } from "./rfid-utils";
 import {
@@ -45,7 +45,7 @@ const propertySeed = {
   billingCurrency: "MXN"
 };
 
-const { db, client } = createDbClient();
+const { db, client } = createMigrationDbClient();
 
 try {
   await seed();

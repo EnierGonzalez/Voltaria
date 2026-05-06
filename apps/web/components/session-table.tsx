@@ -97,17 +97,21 @@ export function SessionTable({
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
             <thead className="bg-panel2 text-xs uppercase tracking-[0.16em] text-muted">
               <tr>
                 <SortableHeader label="Residente" sortKey="residentName" activeKey={sortKey} onSort={handleSort} />
                 <SortableHeader label="Depto" sortKey="apartmentNumber" activeKey={sortKey} onSort={handleSort} />
                 <SortableHeader label="Cargador" sortKey="chargerCode" activeKey={sortKey} onSort={handleSort} />
+                <th className="px-4 py-3 font-medium">Método</th>
                 <SortableHeader label="Energía" sortKey="deliveredKwh" activeKey={sortKey} onSort={handleSort} />
                 <SortableHeader label="Tiempo" sortKey="durationMinutes" activeKey={sortKey} onSort={handleSort} />
                 <th className="px-4 py-3 font-medium">Potencia</th>
                 <SortableHeader label="Costo" sortKey="costAmount" activeKey={sortKey} onSort={handleSort} />
                 <th className="px-4 py-3 font-medium">Estado</th>
+                <th className="px-4 py-3 font-medium">Auditoría</th>
+                <th className="px-4 py-3 font-medium">Cobro</th>
+                <th className="px-4 py-3 font-medium">Paro</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border bg-panel/60">
@@ -120,12 +124,34 @@ export function SessionTable({
                   </td>
                   <td className="px-4 py-3 text-muted">{session.apartmentNumber}</td>
                   <td className="px-4 py-3 text-muted">{session.chargerCode}</td>
+                  <td className="px-4 py-3 text-muted">{session.activationMethodLabel ?? "Manual"}</td>
                   <td className="px-4 py-3 text-foreground">{formatKwh(session.deliveredKwh)}</td>
                   <td className="px-4 py-3 text-muted">{formatDuration(session.durationMinutes)}</td>
                   <td className="px-4 py-3 text-muted">{formatPower(session.powerKw)}</td>
                   <td className="px-4 py-3 text-foreground">{formatCurrency(session.costAmount)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge variant={session.status}>{session.statusLabel}</StatusBadge>
+                  </td>
+                  <td className="px-4 py-3">
+                    {session.auditStatusLabel ? (
+                      <StatusBadge variant={auditVariant(session.auditStatus)}>
+                        {session.auditStatusLabel}
+                      </StatusBadge>
+                    ) : (
+                      <span className="text-muted">Sin auditar</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {session.billingStatusLabel ? (
+                      <StatusBadge variant={billingVariant(session.billingStatus)}>
+                        {session.billingStatusLabel}
+                      </StatusBadge>
+                    ) : (
+                      <span className="text-muted">N/A</span>
+                    )}
+                  </td>
+                  <td className="max-w-[160px] px-4 py-3 text-muted">
+                    <span className="block truncate">{session.stopReason ?? "N/A"}</span>
                   </td>
                 </tr>
               ))}
@@ -145,6 +171,20 @@ export function SessionTable({
     setSortKey(nextKey);
     setAscending(true);
   }
+}
+
+function auditVariant(status: ChargingSessionSummary["auditStatus"]) {
+  if (status === "valid") return "success";
+  if (status === "warning" || status === "needs_review") return "warning";
+  if (status === "failed") return "critical";
+  return "info";
+}
+
+function billingVariant(status: ChargingSessionSummary["billingStatus"]) {
+  if (status === "billable") return "success";
+  if (status === "pending_review") return "warning";
+  if (status === "excluded") return "critical";
+  return "info";
 }
 
 function SortableHeader({

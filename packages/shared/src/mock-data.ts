@@ -447,7 +447,13 @@ export const dashboardStats = {
   rejectedRfidAttemptsToday: 0,
   maintenanceOutlets: 1,
   ruleStoppedSessions: 0,
-  operationalAlerts: 0
+  operationalAlerts: 0,
+  billableKwhMonth: 41.6,
+  billableAmountMonth: 228.8,
+  sessionsPendingReview: 1,
+  openBillingCycles: 0,
+  excludedSessions: 0,
+  warningSessions: 1
 };
 
 export const ocppLogs: OcppLogSummary[] = [

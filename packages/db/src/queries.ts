@@ -1,12 +1,20 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type {
   AlertSummary,
+  AuditBillingStatus,
+  BillingCycleDetail,
+  BillingCycleItemSummary,
+  BillingCycleSessionItemSummary,
+  BillingCycleSummary,
   BillingRecordSummary,
   ChargerSummary,
   ChargingSessionSummary,
+  CommandAuditStatus,
   ConsumptionPoint,
   ControlledOutletSummary,
+  EnergyAuditStatus,
   AccessDeviceSummary,
+  AuthorizationAttemptSummary,
   CredentialEventSummary,
   DeviceCommandSummary,
   MeterValuePoint,
@@ -17,7 +25,11 @@ import type {
   PropertySummary,
   ResidentAccessRuleSummary,
   ResidentSummary,
+  RuleEvaluationSummary,
+  RuleAuditStatus,
   RfidCredentialSummary,
+  SessionAuditStatus,
+  SessionAuditSummary,
   AccessScheduleWindowSummary,
   TariffSummary
 } from "@voltaria/shared";
@@ -28,6 +40,9 @@ import {
   accessDevices,
   accessScheduleWindows,
   authorizationAttempts,
+  billingCycleItems,
+  billingCycleSessionItems,
+  billingCycles,
   billingRecords,
   chargerConnectors,
   chargers,
@@ -43,6 +58,7 @@ import {
   residentCredentials,
   residents,
   ruleEvaluations,
+  sessionAudits,
   tariffs
 } from "./schema";
 
@@ -63,6 +79,12 @@ export type DashboardSummary = {
   maintenanceOutlets: number;
   ruleStoppedSessions: number;
   operationalAlerts: number;
+  billableKwhMonth: number;
+  billableAmountMonth: number;
+  sessionsPendingReview: number;
+  openBillingCycles: number;
+  excludedSessions: number;
+  warningSessions: number;
 };
 
 const statusLabels = {
@@ -111,6 +133,63 @@ const credentialStatusLabels = {
   pending_enrollment: "Pendiente"
 } as const;
 
+const activationMethodLabels = {
+  rfid: "RFID",
+  mobile: "Móvil",
+  admin: "Admin"
+} as const;
+
+const sessionAuditStatusLabels = {
+  valid: "Válida",
+  warning: "Con alerta",
+  failed: "Fallida",
+  needs_review: "Revisión"
+} as const satisfies Record<SessionAuditStatus, string>;
+
+const energyAuditStatusLabels = {
+  normal: "Normal",
+  zero_consumption: "Consumo cero",
+  low_consumption: "Consumo bajo",
+  suspicious_spike: "Pico sospechoso",
+  missing_meter_values: "Sin mediciones",
+  meter_mismatch: "Descuadre medidor"
+} as const satisfies Record<EnergyAuditStatus, string>;
+
+const commandAuditStatusLabels = {
+  normal: "Normal",
+  missing_enable_ack: "Enable sin ack",
+  missing_disable_ack: "Disable sin ack",
+  command_timeout: "Timeout"
+} as const satisfies Record<CommandAuditStatus, string>;
+
+const ruleAuditStatusLabels = {
+  normal: "Normal",
+  stopped_by_rule: "Detenida por regla",
+  denied_before_start: "Denegada antes de iniciar"
+} as const satisfies Record<RuleAuditStatus, string>;
+
+const auditBillingStatusLabels = {
+  billable: "Cobrable",
+  not_billable: "No cobrable",
+  excluded: "Excluida",
+  pending_review: "Pendiente revisión"
+} as const satisfies Record<AuditBillingStatus, string>;
+
+const billingCycleStatusLabels = {
+  draft: "Borrador",
+  reviewing: "En revisión",
+  approved: "Aprobado",
+  exported: "Exportado",
+  closed: "Cerrado"
+} as const;
+
+const billingCycleItemStatusLabels = {
+  draft: "Borrador",
+  approved: "Aprobado",
+  excluded: "Excluido",
+  adjusted: "Ajustado"
+} as const;
+
 export async function getDefaultProperty(db: VoltariaDb) {
   const [property] = await db
     .select()
@@ -147,6 +226,8 @@ export async function getDashboardSummary(
   const residentsList = await getResidents(db, propertyId);
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
+  const monthStart = new Date(todayStart);
+  monthStart.setDate(1);
   const [rejectedRules] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(ruleEvaluations)
@@ -186,6 +267,31 @@ export async function getDashboardSummary(
         sql`${chargingSessions.stopReason} in ('max_duration_reached', 'max_kwh_reached', 'startup_no_load_timeout', 'no_load_completed', 'over_current')`
       )
     );
+  const [billingAudit] = await db
+    .select({
+      billableKwh: sql<string>`coalesce(sum(case when ${sessionAudits.billingStatus} = 'billable' then ${chargingSessions.energyKwh} else 0 end), 0)`,
+      billableAmount: sql<string>`coalesce(sum(case when ${sessionAudits.billingStatus} = 'billable' then ${chargingSessions.costAmount} else 0 end), 0)`,
+      pendingReview: sql<number>`count(*) filter (where ${sessionAudits.auditStatus} = 'needs_review')::int`,
+      excluded: sql<number>`count(*) filter (where ${sessionAudits.billingStatus} = 'excluded')::int`,
+      warning: sql<number>`count(*) filter (where ${sessionAudits.auditStatus} = 'warning')::int`
+    })
+    .from(sessionAudits)
+    .innerJoin(chargingSessions, eq(chargingSessions.id, sessionAudits.sessionId))
+    .where(
+      and(
+        eq(sessionAudits.propertyId, propertyId),
+        sql`${chargingSessions.startedAt} >= ${monthStart}`
+      )
+    );
+  const [openCycles] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(billingCycles)
+    .where(
+      and(
+        eq(billingCycles.propertyId, propertyId),
+        sql`${billingCycles.status} in ('draft', 'reviewing', 'approved', 'exported')`
+      )
+    );
 
   const activeSessions = sessions.filter((session) => session.status === "active");
   const totalDuration = sessions.reduce((sum, session) => sum + session.durationMinutes, 0);
@@ -209,7 +315,13 @@ export async function getDashboardSummary(
     operationalAlerts: alertsList.filter((alert) =>
       alert.title.toLowerCase().includes("sobrecorriente") ||
       alert.description.toLowerCase().includes("no-load")
-    ).length
+    ).length,
+    billableKwhMonth: toNumber(billingAudit?.billableKwh),
+    billableAmountMonth: toNumber(billingAudit?.billableAmount),
+    sessionsPendingReview: billingAudit?.pendingReview ?? 0,
+    openBillingCycles: openCycles?.count ?? 0,
+    excludedSessions: billingAudit?.excluded ?? 0,
+    warningSessions: billingAudit?.warning ?? 0
   };
 }
 
@@ -403,6 +515,9 @@ export async function getRecentSessions(
       ratePerKwh: tariffs.ratePerKwh,
       activationMethod: chargingSessions.activationMethod,
       status: chargingSessions.status,
+      auditStatus: sessionAudits.auditStatus,
+      billingStatus: sessionAudits.billingStatus,
+      stopReason: chargingSessions.stopReason,
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt
     })
@@ -412,6 +527,7 @@ export async function getRecentSessions(
     .leftJoin(residents, eq(residents.id, chargingSessions.residentId))
     .leftJoin(apartments, eq(apartments.id, chargingSessions.apartmentId))
     .leftJoin(tariffs, and(eq(tariffs.propertyId, chargingSessions.propertyId), eq(tariffs.isActive, true)))
+    .leftJoin(sessionAudits, eq(sessionAudits.sessionId, chargingSessions.id))
     .where(eq(chargingSessions.propertyId, propertyId))
     .orderBy(desc(chargingSessions.startedAt))
     .limit(limit);
@@ -441,6 +557,9 @@ export async function getSessionById(
       ratePerKwh: tariffs.ratePerKwh,
       activationMethod: chargingSessions.activationMethod,
       status: chargingSessions.status,
+      auditStatus: sessionAudits.auditStatus,
+      billingStatus: sessionAudits.billingStatus,
+      stopReason: chargingSessions.stopReason,
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt
     })
@@ -450,6 +569,7 @@ export async function getSessionById(
     .leftJoin(residents, eq(residents.id, chargingSessions.residentId))
     .leftJoin(apartments, eq(apartments.id, chargingSessions.apartmentId))
     .leftJoin(tariffs, and(eq(tariffs.propertyId, chargingSessions.propertyId), eq(tariffs.isActive, true)))
+    .leftJoin(sessionAudits, eq(sessionAudits.sessionId, chargingSessions.id))
     .where(eq(chargingSessions.id, sessionId))
     .limit(1);
 
@@ -899,6 +1019,216 @@ export async function getBillingSummary(db: VoltariaDb, propertyId: string) {
   };
 }
 
+export async function getSessionAuditSummaries(
+  db: VoltariaDb,
+  propertyId: string,
+  limit = 100
+): Promise<SessionAuditSummary[]> {
+  const rows = await db
+    .select({
+      id: sessionAudits.id,
+      propertyId: sessionAudits.propertyId,
+      sessionId: sessionAudits.sessionId,
+      residentId: sessionAudits.residentId,
+      apartmentId: sessionAudits.apartmentId,
+      outletId: sessionAudits.outletId,
+      residentName: residents.fullName,
+      apartmentNumber: apartments.number,
+      outletCode: chargers.ocppIdentity,
+      sessionStartedAt: chargingSessions.startedAt,
+      deliveredKwh: chargingSessions.energyKwh,
+      amount: chargingSessions.costAmount,
+      auditStatus: sessionAudits.auditStatus,
+      energyStatus: sessionAudits.energyStatus,
+      commandStatus: sessionAudits.commandStatus,
+      ruleStatus: sessionAudits.ruleStatus,
+      billingStatus: sessionAudits.billingStatus,
+      reviewedBy: sessionAudits.reviewedBy,
+      reviewedAt: sessionAudits.reviewedAt,
+      notes: sessionAudits.notes,
+      details: sessionAudits.details,
+      createdAt: sessionAudits.createdAt,
+      updatedAt: sessionAudits.updatedAt
+    })
+    .from(sessionAudits)
+    .innerJoin(chargingSessions, eq(chargingSessions.id, sessionAudits.sessionId))
+    .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
+    .leftJoin(residents, eq(residents.id, chargingSessions.residentId))
+    .leftJoin(apartments, eq(apartments.id, chargingSessions.apartmentId))
+    .where(eq(sessionAudits.propertyId, propertyId))
+    .orderBy(desc(sessionAudits.updatedAt))
+    .limit(limit);
+
+  return rows.map(mapSessionAuditRow);
+}
+
+export async function getSessionAuditSummaryBySessionId(
+  db: VoltariaDb,
+  sessionId: string
+): Promise<SessionAuditSummary | null> {
+  const rows = await db
+    .select({
+      id: sessionAudits.id,
+      propertyId: sessionAudits.propertyId,
+      sessionId: sessionAudits.sessionId,
+      residentId: sessionAudits.residentId,
+      apartmentId: sessionAudits.apartmentId,
+      outletId: sessionAudits.outletId,
+      residentName: residents.fullName,
+      apartmentNumber: apartments.number,
+      outletCode: chargers.ocppIdentity,
+      sessionStartedAt: chargingSessions.startedAt,
+      deliveredKwh: chargingSessions.energyKwh,
+      amount: chargingSessions.costAmount,
+      auditStatus: sessionAudits.auditStatus,
+      energyStatus: sessionAudits.energyStatus,
+      commandStatus: sessionAudits.commandStatus,
+      ruleStatus: sessionAudits.ruleStatus,
+      billingStatus: sessionAudits.billingStatus,
+      reviewedBy: sessionAudits.reviewedBy,
+      reviewedAt: sessionAudits.reviewedAt,
+      notes: sessionAudits.notes,
+      details: sessionAudits.details,
+      createdAt: sessionAudits.createdAt,
+      updatedAt: sessionAudits.updatedAt
+    })
+    .from(sessionAudits)
+    .innerJoin(chargingSessions, eq(chargingSessions.id, sessionAudits.sessionId))
+    .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
+    .leftJoin(residents, eq(residents.id, chargingSessions.residentId))
+    .leftJoin(apartments, eq(apartments.id, chargingSessions.apartmentId))
+    .where(eq(sessionAudits.sessionId, sessionId))
+    .limit(1);
+
+  return rows[0] ? mapSessionAuditRow(rows[0]) : null;
+}
+
+export async function getBillingCycleSummaries(
+  db: VoltariaDb,
+  propertyId: string
+): Promise<BillingCycleSummary[]> {
+  const rows = await db
+    .select()
+    .from(billingCycles)
+    .where(eq(billingCycles.propertyId, propertyId))
+    .orderBy(desc(billingCycles.periodStart));
+
+  return rows.map(mapBillingCycleRow);
+}
+
+export async function getBillingCycleDetailSummary(
+  db: VoltariaDb,
+  billingCycleId: string
+): Promise<BillingCycleDetail | null> {
+  const [cycle] = await db
+    .select()
+    .from(billingCycles)
+    .where(eq(billingCycles.id, billingCycleId))
+    .limit(1);
+
+  if (!cycle) {
+    return null;
+  }
+
+  const itemRows = await db
+    .select({
+      id: billingCycleItems.id,
+      billingCycleId: billingCycleItems.billingCycleId,
+      propertyId: billingCycleItems.propertyId,
+      residentId: billingCycleItems.residentId,
+      apartmentId: billingCycleItems.apartmentId,
+      apartmentNumber: apartments.number,
+      residentName: residents.fullName,
+      totalKwh: billingCycleItems.totalKwh,
+      totalAmount: billingCycleItems.totalAmount,
+      adjustmentAmount: billingCycleItems.adjustmentAmount,
+      adjustmentReason: billingCycleItems.adjustmentReason,
+      totalSessions: billingCycleItems.totalSessions,
+      validSessions: billingCycleItems.validSessions,
+      warningSessions: billingCycleItems.warningSessions,
+      excludedSessions: billingCycleItems.excludedSessions,
+      status: billingCycleItems.status,
+      notes: billingCycleItems.notes
+    })
+    .from(billingCycleItems)
+    .innerJoin(apartments, eq(apartments.id, billingCycleItems.apartmentId))
+    .leftJoin(residents, eq(residents.id, billingCycleItems.residentId))
+    .where(eq(billingCycleItems.billingCycleId, billingCycleId))
+    .orderBy(apartments.number);
+
+  const sessionRows = await db
+    .select({
+      id: billingCycleSessionItems.id,
+      billingCycleId: billingCycleSessionItems.billingCycleId,
+      billingCycleItemId: billingCycleSessionItems.billingCycleItemId,
+      sessionId: billingCycleSessionItems.sessionId,
+      residentName: residents.fullName,
+      apartmentNumber: apartments.number,
+      outletCode: chargers.ocppIdentity,
+      startedAt: chargingSessions.startedAt,
+      energyDeliveredKwh: billingCycleSessionItems.energyDeliveredKwh,
+      amount: billingCycleSessionItems.amount,
+      auditStatus: billingCycleSessionItems.auditStatus,
+      billingStatus: billingCycleSessionItems.billingStatus,
+      included: billingCycleSessionItems.included,
+      exclusionReason: billingCycleSessionItems.exclusionReason
+    })
+    .from(billingCycleSessionItems)
+    .innerJoin(chargingSessions, eq(chargingSessions.id, billingCycleSessionItems.sessionId))
+    .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
+    .leftJoin(residents, eq(residents.id, billingCycleSessionItems.residentId))
+    .leftJoin(apartments, eq(apartments.id, billingCycleSessionItems.apartmentId))
+    .where(eq(billingCycleSessionItems.billingCycleId, billingCycleId))
+    .orderBy(desc(chargingSessions.startedAt));
+
+  return {
+    cycle: mapBillingCycleRow(cycle),
+    items: itemRows.map((row): BillingCycleItemSummary => {
+      const adjustmentAmount = toNumber(row.adjustmentAmount);
+
+      return {
+        id: row.id,
+        billingCycleId: row.billingCycleId,
+        propertyId: row.propertyId,
+        ...(row.residentId ? { residentId: row.residentId } : {}),
+        apartmentId: row.apartmentId,
+        apartmentNumber: row.apartmentNumber,
+        residentName: row.residentName ?? "Sin residente",
+        totalKwh: toNumber(row.totalKwh),
+        totalAmount: toNumber(row.totalAmount),
+        ...(row.adjustmentAmount !== null ? { adjustmentAmount } : {}),
+        ...(row.adjustmentReason ? { adjustmentReason: row.adjustmentReason } : {}),
+        finalAmount: toNumber(row.totalAmount) + adjustmentAmount,
+        totalSessions: row.totalSessions,
+        validSessions: row.validSessions,
+        warningSessions: row.warningSessions,
+        excludedSessions: row.excludedSessions,
+        status: row.status,
+        statusLabel: billingCycleItemStatusLabels[row.status],
+        ...(row.notes ? { notes: row.notes } : {})
+      };
+    }),
+    sessions: sessionRows.map((row): BillingCycleSessionItemSummary => ({
+      id: row.id,
+      billingCycleId: row.billingCycleId,
+      billingCycleItemId: row.billingCycleItemId,
+      sessionId: row.sessionId,
+      residentName: row.residentName ?? "Sin residente",
+      apartmentNumber: row.apartmentNumber ?? "Sin depto",
+      outletCode: row.outletCode,
+      startedAt: toIso(row.startedAt),
+      energyDeliveredKwh: toNumber(row.energyDeliveredKwh),
+      amount: toNumber(row.amount),
+      auditStatus: row.auditStatus,
+      auditStatusLabel: sessionAuditStatusLabels[row.auditStatus],
+      billingStatus: row.billingStatus,
+      billingStatusLabel: auditBillingStatusLabels[row.billingStatus],
+      included: row.included,
+      ...(row.exclusionReason ? { exclusionReason: row.exclusionReason } : {})
+    }))
+  };
+}
+
 export async function getTariffs(db: VoltariaDb, propertyId: string): Promise<TariffSummary[]> {
   const rows = await db
     .select()
@@ -1039,6 +1369,173 @@ export async function getDeviceCommandsForCharger(
   }));
 }
 
+export async function getDeviceCommandsForSession(
+  db: VoltariaDb,
+  sessionId: string,
+  limit = 12
+): Promise<DeviceCommandSummary[]> {
+  const rows = await db
+    .select()
+    .from(deviceCommands)
+    .where(eq(deviceCommands.sessionId, sessionId))
+    .orderBy(desc(deviceCommands.createdAt))
+    .limit(limit);
+
+  return rows.map((command) => ({
+    id: command.id,
+    ...(command.chargerId ? { chargerId: command.chargerId } : {}),
+    ...(command.sessionId ? { sessionId: command.sessionId } : {}),
+    commandType: command.commandType,
+    status: command.status,
+    ...(command.requestedBy ? { requestedBy: command.requestedBy } : {}),
+    createdAt: toIso(command.createdAt),
+    ...(command.acknowledgedAt ? { acknowledgedAt: toIso(command.acknowledgedAt) } : {})
+  }));
+}
+
+export async function getRuleEvaluationsForSession(
+  db: VoltariaDb,
+  sessionId: string,
+  limit = 12
+): Promise<RuleEvaluationSummary[]> {
+  const rows = await db
+    .select()
+    .from(ruleEvaluations)
+    .where(eq(ruleEvaluations.sessionId, sessionId))
+    .orderBy(desc(ruleEvaluations.createdAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    propertyId: row.propertyId,
+    ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+    method: row.method,
+    result: row.result,
+    reason: row.reason,
+    details: row.details,
+    createdAt: toIso(row.createdAt)
+  }));
+}
+
+export async function getAuthorizationAttemptsForSession(
+  db: VoltariaDb,
+  sessionId: string,
+  limit = 12
+): Promise<AuthorizationAttemptSummary[]> {
+  const rows = await db
+    .select({
+      id: authorizationAttempts.id,
+      propertyId: authorizationAttempts.propertyId,
+      method: authorizationAttempts.method,
+      result: authorizationAttempts.result,
+      reason: authorizationAttempts.reason,
+      maskedValue: authorizationAttempts.maskedValue,
+      metadata: authorizationAttempts.metadata,
+      createdAt: authorizationAttempts.createdAt
+    })
+    .from(authorizationAttempts)
+    .where(sql`${authorizationAttempts.metadata}->>'sessionId' = ${sessionId}`)
+    .orderBy(desc(authorizationAttempts.createdAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    propertyId: row.propertyId,
+    sessionId,
+    method: row.method,
+    result: row.result,
+    ...(row.reason ? { reason: row.reason } : {}),
+    ...(row.maskedValue ? { maskedValue: row.maskedValue } : {}),
+    createdAt: toIso(row.createdAt)
+  }));
+}
+
+function mapSessionAuditRow(row: {
+  id: string;
+  propertyId: string;
+  sessionId: string;
+  residentId: string | null;
+  apartmentId: string | null;
+  outletId: string | null;
+  residentName: string | null;
+  apartmentNumber: string | null;
+  outletCode: string;
+  sessionStartedAt: Date;
+  deliveredKwh: string;
+  amount: string;
+  auditStatus: SessionAuditStatus;
+  energyStatus: EnergyAuditStatus;
+  commandStatus: CommandAuditStatus;
+  ruleStatus: RuleAuditStatus;
+  billingStatus: AuditBillingStatus;
+  reviewedBy: string | null;
+  reviewedAt: Date | null;
+  notes: string | null;
+  details: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}): SessionAuditSummary {
+  return {
+    id: row.id,
+    propertyId: row.propertyId,
+    sessionId: row.sessionId,
+    ...(row.residentId ? { residentId: row.residentId } : {}),
+    ...(row.apartmentId ? { apartmentId: row.apartmentId } : {}),
+    ...(row.outletId ? { outletId: row.outletId } : {}),
+    residentName: row.residentName ?? "Sin residente",
+    apartmentNumber: row.apartmentNumber ?? "Sin depto",
+    outletCode: row.outletCode,
+    sessionStartedAt: toIso(row.sessionStartedAt),
+    deliveredKwh: toNumber(row.deliveredKwh),
+    amount: toNumber(row.amount),
+    auditStatus: row.auditStatus,
+    auditStatusLabel: sessionAuditStatusLabels[row.auditStatus],
+    energyStatus: row.energyStatus,
+    energyStatusLabel: energyAuditStatusLabels[row.energyStatus],
+    commandStatus: row.commandStatus,
+    commandStatusLabel: commandAuditStatusLabels[row.commandStatus],
+    ruleStatus: row.ruleStatus,
+    ruleStatusLabel: ruleAuditStatusLabels[row.ruleStatus],
+    billingStatus: row.billingStatus,
+    billingStatusLabel: auditBillingStatusLabels[row.billingStatus],
+    ...(row.reviewedBy ? { reviewedBy: row.reviewedBy } : {}),
+    ...(row.reviewedAt ? { reviewedAt: toIso(row.reviewedAt) } : {}),
+    ...(row.notes ? { notes: row.notes } : {}),
+    details: row.details,
+    createdAt: toIso(row.createdAt),
+    updatedAt: toIso(row.updatedAt)
+  };
+}
+
+function mapBillingCycleRow(row: {
+  id: string;
+  propertyId: string;
+  name: string;
+  periodStart: Date;
+  periodEnd: Date;
+  status: "draft" | "reviewing" | "approved" | "exported" | "closed";
+  totalKwh: string;
+  totalAmount: string;
+  totalSessions: number;
+  createdAt: Date;
+  approvedAt: Date | null;
+}): BillingCycleSummary {
+  return {
+    id: row.id,
+    propertyId: row.propertyId,
+    name: row.name,
+    periodStart: toIso(row.periodStart),
+    periodEnd: toIso(row.periodEnd),
+    status: row.status,
+    statusLabel: billingCycleStatusLabels[row.status],
+    totalKwh: toNumber(row.totalKwh),
+    totalAmount: toNumber(row.totalAmount),
+    totalSessions: row.totalSessions,
+    createdAt: toIso(row.createdAt),
+    ...(row.approvedAt ? { approvedAt: toIso(row.approvedAt) } : {})
+  };
+}
+
 function mapSessionRow(row: {
   id: string;
   propertyId: string;
@@ -1056,6 +1553,9 @@ function mapSessionRow(row: {
   ratePerKwh: string | null;
   activationMethod: "rfid" | "mobile" | "admin" | null;
   status: "pending_start" | "active" | "completed" | "interrupted" | "failed";
+  auditStatus: SessionAuditStatus | null;
+  billingStatus: AuditBillingStatus | null;
+  stopReason: string | null;
   startedAt: Date;
   endedAt: Date | null;
 }): ChargingSessionSummary {
@@ -1077,6 +1577,20 @@ function mapSessionRow(row: {
     status: row.status,
     statusLabel: statusLabels[row.status],
     ...(row.activationMethod ? { activationMethod: row.activationMethod } : {}),
+    ...(row.activationMethod ? { activationMethodLabel: activationMethodLabels[row.activationMethod] } : {}),
+    ...(row.auditStatus
+      ? {
+          auditStatus: row.auditStatus,
+          auditStatusLabel: sessionAuditStatusLabels[row.auditStatus]
+        }
+      : {}),
+    ...(row.billingStatus
+      ? {
+          billingStatus: row.billingStatus,
+          billingStatusLabel: auditBillingStatusLabels[row.billingStatus]
+        }
+      : {}),
+    ...(row.stopReason ? { stopReason: row.stopReason } : {}),
     startedAt: toIso(row.startedAt),
     ...(row.endedAt ? { endedAt: toIso(row.endedAt) } : {}),
     shortDate: formatShortDate(row.startedAt),

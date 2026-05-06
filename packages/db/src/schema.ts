@@ -152,6 +152,69 @@ export const ruleEvaluationResultEnum = pgEnum("rule_evaluation_result", [
   "denied"
 ]);
 
+export const sessionAuditStatusEnum = pgEnum("session_audit_status", [
+  "valid",
+  "warning",
+  "failed",
+  "needs_review"
+]);
+
+export const energyAuditStatusEnum = pgEnum("energy_audit_status", [
+  "normal",
+  "zero_consumption",
+  "low_consumption",
+  "suspicious_spike",
+  "missing_meter_values",
+  "meter_mismatch"
+]);
+
+export const commandAuditStatusEnum = pgEnum("command_audit_status", [
+  "normal",
+  "missing_enable_ack",
+  "missing_disable_ack",
+  "command_timeout"
+]);
+
+export const ruleAuditStatusEnum = pgEnum("rule_audit_status", [
+  "normal",
+  "stopped_by_rule",
+  "denied_before_start"
+]);
+
+export const auditBillingStatusEnum = pgEnum("audit_billing_status", [
+  "billable",
+  "not_billable",
+  "excluded",
+  "pending_review"
+]);
+
+export const billingCycleStatusEnum = pgEnum("billing_cycle_status", [
+  "draft",
+  "reviewing",
+  "approved",
+  "exported",
+  "closed"
+]);
+
+export const billingCycleItemStatusEnum = pgEnum("billing_cycle_item_status", [
+  "draft",
+  "approved",
+  "excluded",
+  "adjusted"
+]);
+
+export const exportJobTypeEnum = pgEnum("export_job_type", [
+  "billing_csv",
+  "sessions_csv",
+  "audit_csv"
+]);
+
+export const exportJobStatusEnum = pgEnum("export_job_status", [
+  "pending",
+  "completed",
+  "failed"
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
@@ -809,6 +872,176 @@ export const billingRecords = pgTable(
   })
 );
 
+export const sessionAudits = pgTable(
+  "session_audits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    sessionId: uuid("session_id")
+      .references(() => chargingSessions.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    apartmentId: uuid("apartment_id").references(() => apartments.id, { onDelete: "set null" }),
+    outletId: uuid("outlet_id").references(() => chargers.id, { onDelete: "set null" }),
+    auditStatus: sessionAuditStatusEnum("audit_status").default("needs_review").notNull(),
+    energyStatus: energyAuditStatusEnum("energy_status").default("normal").notNull(),
+    commandStatus: commandAuditStatusEnum("command_status").default("normal").notNull(),
+    ruleStatus: ruleAuditStatusEnum("rule_status").default("normal").notNull(),
+    billingStatus: auditBillingStatusEnum("billing_status").default("pending_review").notNull(),
+    reviewedBy: varchar("reviewed_by", { length: 120 }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    notes: text("notes"),
+    details: jsonb("details").$type<Record<string, unknown>>().default({}).notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    sessionIdx: uniqueIndex("session_audits_session_idx").on(table.sessionId),
+    propertyStatusIdx: index("session_audits_property_status_idx").on(
+      table.propertyId,
+      table.auditStatus
+    ),
+    propertyBillingIdx: index("session_audits_property_billing_idx").on(
+      table.propertyId,
+      table.billingStatus
+    ),
+    residentIdx: index("session_audits_resident_idx").on(table.residentId)
+  })
+);
+
+export const billingCycles = pgTable(
+  "billing_cycles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    status: billingCycleStatusEnum("status").default("draft").notNull(),
+    totalKwh: numeric("total_kwh", { precision: 12, scale: 3 }).default("0").notNull(),
+    totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).default("0").notNull(),
+    totalSessions: integer("total_sessions").default(0).notNull(),
+    createdBy: varchar("created_by", { length: 120 }),
+    approvedBy: varchar("approved_by", { length: 120 }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    propertyPeriodIdx: index("billing_cycles_property_period_idx").on(
+      table.propertyId,
+      table.periodStart,
+      table.periodEnd
+    ),
+    propertyStatusIdx: index("billing_cycles_property_status_idx").on(table.propertyId, table.status)
+  })
+);
+
+export const billingCycleItems = pgTable(
+  "billing_cycle_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    billingCycleId: uuid("billing_cycle_id")
+      .references(() => billingCycles.id, { onDelete: "cascade" })
+      .notNull(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    apartmentId: uuid("apartment_id")
+      .references(() => apartments.id, { onDelete: "cascade" })
+      .notNull(),
+    totalKwh: numeric("total_kwh", { precision: 12, scale: 3 }).default("0").notNull(),
+    totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).default("0").notNull(),
+    totalSessions: integer("total_sessions").default(0).notNull(),
+    validSessions: integer("valid_sessions").default(0).notNull(),
+    warningSessions: integer("warning_sessions").default(0).notNull(),
+    excludedSessions: integer("excluded_sessions").default(0).notNull(),
+    status: billingCycleItemStatusEnum("status").default("draft").notNull(),
+    adjustmentAmount: numeric("adjustment_amount", { precision: 12, scale: 2 }),
+    adjustmentReason: varchar("adjustment_reason", { length: 180 }),
+    notes: text("notes"),
+    ...timestamps
+  },
+  (table) => ({
+    cycleApartmentIdx: uniqueIndex("billing_cycle_items_cycle_apartment_idx").on(
+      table.billingCycleId,
+      table.apartmentId,
+      table.residentId
+    ),
+    propertyCycleIdx: index("billing_cycle_items_property_cycle_idx").on(
+      table.propertyId,
+      table.billingCycleId
+    )
+  })
+);
+
+export const billingCycleSessionItems = pgTable(
+  "billing_cycle_session_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    billingCycleId: uuid("billing_cycle_id")
+      .references(() => billingCycles.id, { onDelete: "cascade" })
+      .notNull(),
+    billingCycleItemId: uuid("billing_cycle_item_id")
+      .references(() => billingCycleItems.id, { onDelete: "cascade" })
+      .notNull(),
+    sessionId: uuid("session_id")
+      .references(() => chargingSessions.id, { onDelete: "cascade" })
+      .notNull(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    apartmentId: uuid("apartment_id").references(() => apartments.id, { onDelete: "set null" }),
+    energyDeliveredKwh: numeric("energy_delivered_kwh", { precision: 12, scale: 3 })
+      .default("0")
+      .notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).default("0").notNull(),
+    auditStatus: sessionAuditStatusEnum("audit_status").notNull(),
+    billingStatus: auditBillingStatusEnum("billing_status").notNull(),
+    included: boolean("included").default(true).notNull(),
+    exclusionReason: varchar("exclusion_reason", { length: 180 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    cycleSessionIdx: uniqueIndex("billing_cycle_session_items_cycle_session_idx").on(
+      table.billingCycleId,
+      table.sessionId
+    ),
+    cycleItemIdx: index("billing_cycle_session_items_cycle_item_idx").on(table.billingCycleItemId)
+  })
+);
+
+export const exportJobs = pgTable(
+  "export_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    billingCycleId: uuid("billing_cycle_id").references(() => billingCycles.id, {
+      onDelete: "set null"
+    }),
+    type: exportJobTypeEnum("type").notNull(),
+    status: exportJobStatusEnum("status").default("pending").notNull(),
+    fileName: varchar("file_name", { length: 220 }),
+    filePath: text("file_path"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+  },
+  (table) => ({
+    propertyCreatedIdx: index("export_jobs_property_created_idx").on(
+      table.propertyId,
+      table.createdAt
+    ),
+    cycleIdx: index("export_jobs_cycle_idx").on(table.billingCycleId)
+  })
+);
+
 export const ocppMessages = pgTable(
   "ocpp_messages",
   {
@@ -872,7 +1105,12 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   outletAccessOverrides: many(outletAccessOverrides),
   residentAccessOverrides: many(residentAccessOverrides),
   apartmentAccessOverrides: many(apartmentAccessOverrides),
-  ruleEvaluations: many(ruleEvaluations)
+  ruleEvaluations: many(ruleEvaluations),
+  sessionAudits: many(sessionAudits),
+  billingCycles: many(billingCycles),
+  billingCycleItems: many(billingCycleItems),
+  billingCycleSessionItems: many(billingCycleSessionItems),
+  exportJobs: many(exportJobs)
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -884,7 +1122,10 @@ export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
   sessions: many(chargingSessions),
   billingRecords: many(billingRecords),
   accessOverride: many(apartmentAccessOverrides),
-  ruleEvaluations: many(ruleEvaluations)
+  ruleEvaluations: many(ruleEvaluations),
+  sessionAudits: many(sessionAudits),
+  billingCycleItems: many(billingCycleItems),
+  billingCycleSessionItems: many(billingCycleSessionItems)
 }));
 
 export const residentsRelations = relations(residents, ({ one, many }) => ({
@@ -903,7 +1144,10 @@ export const residentsRelations = relations(residents, ({ one, many }) => ({
   accessOverride: many(residentAccessOverrides),
   ruleEvaluations: many(ruleEvaluations),
   sessions: many(chargingSessions),
-  billingRecords: many(billingRecords)
+  billingRecords: many(billingRecords),
+  sessionAudits: many(sessionAudits),
+  billingCycleItems: many(billingCycleItems),
+  billingCycleSessionItems: many(billingCycleSessionItems)
 }));
 
 export const residentCredentialsRelations = relations(residentCredentials, ({ one, many }) => ({
@@ -941,7 +1185,8 @@ export const chargersRelations = relations(chargers, ({ one, many }) => ({
   credentialEnrollments: many(credentialEnrollmentSessions),
   authorizationAttempts: many(authorizationAttempts),
   outletAccessOverrides: many(outletAccessOverrides),
-  ruleEvaluations: many(ruleEvaluations)
+  ruleEvaluations: many(ruleEvaluations),
+  sessionAudits: many(sessionAudits)
 }));
 
 export const chargerConnectorsRelations = relations(chargerConnectors, ({ one, many }) => ({
@@ -982,7 +1227,9 @@ export const chargingSessionsRelations = relations(chargingSessions, ({ one, man
   alerts: many(alerts),
   billingRecords: many(billingRecords),
   deviceCommands: many(deviceCommands),
-  ruleEvaluations: many(ruleEvaluations)
+  ruleEvaluations: many(ruleEvaluations),
+  audit: many(sessionAudits),
+  billingCycleSessionItems: many(billingCycleSessionItems)
 }));
 
 export const meterValuesRelations = relations(meterValues, ({ one }) => ({
@@ -1047,6 +1294,100 @@ export const billingRecordsRelations = relations(billingRecords, ({ one }) => ({
   tariff: one(tariffs, {
     fields: [billingRecords.tariffId],
     references: [tariffs.id]
+  })
+}));
+
+export const sessionAuditsRelations = relations(sessionAudits, ({ one }) => ({
+  property: one(properties, {
+    fields: [sessionAudits.propertyId],
+    references: [properties.id]
+  }),
+  session: one(chargingSessions, {
+    fields: [sessionAudits.sessionId],
+    references: [chargingSessions.id]
+  }),
+  resident: one(residents, {
+    fields: [sessionAudits.residentId],
+    references: [residents.id]
+  }),
+  apartment: one(apartments, {
+    fields: [sessionAudits.apartmentId],
+    references: [apartments.id]
+  }),
+  outlet: one(chargers, {
+    fields: [sessionAudits.outletId],
+    references: [chargers.id]
+  })
+}));
+
+export const billingCyclesRelations = relations(billingCycles, ({ one, many }) => ({
+  property: one(properties, {
+    fields: [billingCycles.propertyId],
+    references: [properties.id]
+  }),
+  items: many(billingCycleItems),
+  sessionItems: many(billingCycleSessionItems),
+  exportJobs: many(exportJobs)
+}));
+
+export const billingCycleItemsRelations = relations(billingCycleItems, ({ one, many }) => ({
+  cycle: one(billingCycles, {
+    fields: [billingCycleItems.billingCycleId],
+    references: [billingCycles.id]
+  }),
+  property: one(properties, {
+    fields: [billingCycleItems.propertyId],
+    references: [properties.id]
+  }),
+  resident: one(residents, {
+    fields: [billingCycleItems.residentId],
+    references: [residents.id]
+  }),
+  apartment: one(apartments, {
+    fields: [billingCycleItems.apartmentId],
+    references: [apartments.id]
+  }),
+  sessions: many(billingCycleSessionItems)
+}));
+
+export const billingCycleSessionItemsRelations = relations(
+  billingCycleSessionItems,
+  ({ one }) => ({
+    cycle: one(billingCycles, {
+      fields: [billingCycleSessionItems.billingCycleId],
+      references: [billingCycles.id]
+    }),
+    item: one(billingCycleItems, {
+      fields: [billingCycleSessionItems.billingCycleItemId],
+      references: [billingCycleItems.id]
+    }),
+    session: one(chargingSessions, {
+      fields: [billingCycleSessionItems.sessionId],
+      references: [chargingSessions.id]
+    }),
+    property: one(properties, {
+      fields: [billingCycleSessionItems.propertyId],
+      references: [properties.id]
+    }),
+    resident: one(residents, {
+      fields: [billingCycleSessionItems.residentId],
+      references: [residents.id]
+    }),
+    apartment: one(apartments, {
+      fields: [billingCycleSessionItems.apartmentId],
+      references: [apartments.id]
+    })
+  })
+);
+
+export const exportJobsRelations = relations(exportJobs, ({ one }) => ({
+  property: one(properties, {
+    fields: [exportJobs.propertyId],
+    references: [properties.id]
+  }),
+  billingCycle: one(billingCycles, {
+    fields: [exportJobs.billingCycleId],
+    references: [billingCycles.id]
   })
 }));
 
@@ -1252,6 +1593,16 @@ export type Property = typeof properties.$inferSelect;
 export type NewProperty = typeof properties.$inferInsert;
 export type ChargingSession = typeof chargingSessions.$inferSelect;
 export type NewChargingSession = typeof chargingSessions.$inferInsert;
+export type SessionAudit = typeof sessionAudits.$inferSelect;
+export type NewSessionAudit = typeof sessionAudits.$inferInsert;
+export type BillingCycle = typeof billingCycles.$inferSelect;
+export type NewBillingCycle = typeof billingCycles.$inferInsert;
+export type BillingCycleItem = typeof billingCycleItems.$inferSelect;
+export type NewBillingCycleItem = typeof billingCycleItems.$inferInsert;
+export type BillingCycleSessionItem = typeof billingCycleSessionItems.$inferSelect;
+export type NewBillingCycleSessionItem = typeof billingCycleSessionItems.$inferInsert;
+export type ExportJob = typeof exportJobs.$inferSelect;
+export type NewExportJob = typeof exportJobs.$inferInsert;
 export type OcppMessageRecord = typeof ocppMessages.$inferSelect;
 export type NewOcppMessageRecord = typeof ocppMessages.$inferInsert;
 export type DeviceCommand = typeof deviceCommands.$inferSelect;
