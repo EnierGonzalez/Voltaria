@@ -244,6 +244,63 @@ Pruebas sugeridas:
 - Corte mensual con sesiones cobrables y pendientes de revisión.
 - Export CSV de corte, sesiones y auditoría.
 
+## Platform Admin y provisioning SaaS
+
+Platform Admin permite operar Voltaria como SaaS multi-tenant.
+
+Rutas:
+
+- `/platform`: métricas globales de tenants, propiedades, tomas, gateways, sesiones y alertas.
+- `/platform/tenants`: listado de organizaciones/clientes.
+- `/platform/tenants/new`: provisioning de tenant, propiedad, tomas, tarifa, reglas, usuario inicial y gateway lógico.
+- `/platform/tenants/[organizationId]`: detalle operativo del tenant.
+- `/platform/gateways`: inventario global de gateways.
+
+Permisos:
+
+- `platform_owner`: administra tenants y gateways.
+- `platform_admin`: administra tenants y gateways sin impersonation.
+- `platform_support`: vista de tenants/gateways y salud del sistema.
+
+Flujo para nuevo tenant:
+
+1. Inicia sesión como usuario con `platform.tenants.manage`.
+2. Abre `/platform/tenants/new`.
+3. Captura cliente, propiedad, número de tomas, tarifa, owner inicial y gateway.
+4. Al crear, copia la contraseña temporal y el token del gateway; solo se muestran una vez.
+5. Entrega el JSON de config al worker/gateway correspondiente.
+
+El seed crea la organización `Voltaria Demo`, asocia `Torre Aurora`, marca `admin@voltaria.local` como `platform_owner` y provisiona `GW-TORRE-AURORA-SIM`. No imprime tokens ni secretos.
+
+## Worker / gateway deploy
+
+La web corre en Vercel. El worker de tomas no corre en Vercel; para staging 24/7 usa Railway, Render o un servicio always-on.
+
+Comandos base:
+
+```bash
+pnpm dev:web
+pnpm outlet:simulator
+```
+
+Variables principales:
+
+```bash
+WORKER_SCOPE=all_simulated
+OUTLET_SIMULATOR_POLL_INTERVAL_MS=3000
+OUTLET_SIMULATOR_METER_INTERVAL_MS=10000
+```
+
+Para worker por gateway:
+
+```bash
+WORKER_SCOPE=gateway
+WORKER_GATEWAY_CODE=GW-TORRE-AURORA-SIM
+WORKER_GATEWAY_TOKEN=<token-generado-una-vez>
+```
+
+Guía completa: `docs/deploy-worker.md`.
+
 ## Deploy to Vercel Staging
 
 La guía completa está en `docs/deploy-vercel.md`.

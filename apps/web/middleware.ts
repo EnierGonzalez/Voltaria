@@ -5,6 +5,7 @@ const publicPrefixes = [
   "/api/health",
   "/api/db-health",
   "/api/config-health",
+  "/api/gateway/heartbeat",
   "/api/rfid/event"
 ];
 

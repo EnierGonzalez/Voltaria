@@ -250,6 +250,7 @@ export async function handleRfidTap(
       credentialId: credential.id,
       accessDeviceId: accessDevice.id,
       outletId: outlet.id,
+      gatewayId: outlet.gatewayId,
       sessionId: existingOwnOutletSession.id,
       maskedValue,
       source: input.source
@@ -326,6 +327,7 @@ export async function handleRfidTap(
     accessDeviceId: accessDevice.id,
     outletId: outlet.id,
     outletCode: outlet.ocppIdentity,
+    gatewayId: outlet.gatewayId,
     ...(outlet.publicAccessCode ? { publicAccessCode: outlet.publicAccessCode } : {}),
     voltage: outlet.voltage ?? 120,
     maxCurrentAmp: toNumber(ruleDecision.details.effectiveMaxCurrentAmp) || toNumber(outlet.maxCurrentAmp) || 12,
@@ -345,6 +347,7 @@ async function startRfidOutletSession(
     accessDeviceId: string;
     outletId: string;
     outletCode: string;
+    gatewayId: string | null;
     publicAccessCode?: string | undefined;
     voltage: number;
     maxCurrentAmp: number;
@@ -496,6 +499,7 @@ async function startRfidOutletSession(
       .insert(deviceCommands)
       .values({
         propertyId: input.propertyId,
+        gatewayId: input.gatewayId,
         chargerId: input.outletId,
         sessionId: session.id,
         commandType: "enable",
@@ -578,6 +582,7 @@ async function requestRfidStop(
     credentialId: string;
     accessDeviceId: string;
     outletId: string;
+    gatewayId?: string | null;
     sessionId: string;
     maskedValue: string;
     source: string;
@@ -603,6 +608,7 @@ async function requestRfidStop(
           .insert(deviceCommands)
           .values({
             propertyId: input.propertyId,
+            gatewayId: input.gatewayId ?? null,
             chargerId: input.outletId,
             sessionId: input.sessionId,
             commandType: "disable",

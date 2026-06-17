@@ -51,7 +51,7 @@ export async function loginAction(formData: FormData) {
     redirect("/login?error=invalid");
   }
 
-  const nextPath = sanitizeNextPath(parsed.data.next);
+  const nextPath = resolvePostLoginPath(parsed.data.next, result.user);
 
   if (result.user.mustChangePassword) {
     redirect(`/change-password?next=${encodeURIComponent(nextPath)}`);
@@ -106,6 +106,23 @@ export async function changePasswordAction(formData: FormData) {
   }
 
   redirect(next);
+}
+
+function resolvePostLoginPath(
+  path: string | undefined,
+  user: { permissions: string[] }
+) {
+  const sanitized = sanitizeNextPath(path);
+
+  if (
+    sanitized === "/dashboard" &&
+    !user.permissions.includes("dashboard.view") &&
+    user.permissions.includes("platform.tenants.view")
+  ) {
+    return "/platform";
+  }
+
+  return sanitized;
 }
 
 function sanitizeNextPath(path: string | undefined) {

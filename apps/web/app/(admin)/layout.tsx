@@ -9,7 +9,10 @@ export default async function AdminLayout({
 }>) {
   const user = await requireUser("/dashboard");
 
-  if (!user.permissions.includes("dashboard.view")) {
+  if (
+    !user.permissions.includes("dashboard.view") &&
+    !user.permissions.includes("platform.tenants.view")
+  ) {
     redirect("/403");
   }
 

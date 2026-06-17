@@ -13,6 +13,7 @@ import {
 } from "@voltaria/shared";
 import { createMigrationDbClient } from "./client";
 import { createInitialOwnerIfMissing, createMembership, createUser, getUserByEmail } from "./auth-service";
+import { hashGatewayToken } from "./gateway-service";
 import { loadDatabaseEnv } from "./load-env";
 import { hashRfidTag, maskRfidTag } from "./rfid-utils";
 import {
@@ -20,13 +21,16 @@ import {
   accessScheduleWindows,
   alerts,
   apartments,
+  appUsers,
   billingRecords,
   chargerConnectors,
   chargers,
   chargingSessions,
   deviceCommands,
+  gatewayDevices,
   meterValues,
   ocppMessages,
+  organizations,
   outletAccessOverrides,
   properties,
   propertyAccessRules,
@@ -46,6 +50,15 @@ const propertySeed = {
   billingCurrency: "MXN"
 };
 
+const organizationSeed = {
+  name: "Voltaria Demo",
+  slug: "voltaria-demo",
+  status: "active" as const,
+  plan: "demo" as const,
+  timezone: "America/Cancun",
+  currency: "MXN"
+};
+
 const { db, client } = createMigrationDbClient();
 
 try {
@@ -59,6 +72,7 @@ try {
 }
 
 async function seed() {
+  const organization = await ensureOrganizationSeed();
   const [existingProperty] = await db
     .select({ id: properties.id })
     .from(properties)
@@ -68,7 +82,7 @@ async function seed() {
   if (existingProperty) {
     const [property] = await db
       .update(properties)
-      .set({ ...propertySeed, updatedAt: new Date() })
+      .set({ ...propertySeed, organizationId: organization.id, updatedAt: new Date() })
       .where(eq(properties.id, existingProperty.id))
       .returning();
 
@@ -79,10 +93,14 @@ async function seed() {
     await ensureRfidSeed(property.id);
     await ensureOperationalRulesSeed(property.id);
     await ensureAuthSeed(property.id);
+    await ensureDemoGatewaySeed(organization.id, property.id);
     return;
   }
 
-  const [property] = await db.insert(properties).values(propertySeed).returning();
+  const [property] = await db
+    .insert(properties)
+    .values({ ...propertySeed, organizationId: organization.id })
+    .returning();
 
   if (!property) {
     throw new Error("Seed failed while creating property.");
@@ -469,10 +487,41 @@ async function seed() {
 
   await ensureOperationalRulesSeed(property.id);
   await ensureAuthSeed(property.id);
+  await ensureDemoGatewaySeed(organization.id, property.id);
+}
+
+async function ensureOrganizationSeed() {
+  const [existing] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.slug, organizationSeed.slug))
+    .limit(1);
+
+  if (existing) {
+    const [updated] = await db
+      .update(organizations)
+      .set({ ...organizationSeed, updatedAt: new Date() })
+      .where(eq(organizations.id, existing.id))
+      .returning();
+
+    return updated ?? existing;
+  }
+
+  const [organization] = await db
+    .insert(organizations)
+    .values({ ...organizationSeed, metadata: { seeded: true } })
+    .returning();
+
+  if (!organization) {
+    throw new Error("Seed failed while creating organization.");
+  }
+
+  return organization;
 }
 
 async function ensureAuthSeed(propertyId: string) {
   await createInitialOwnerIfMissing(db);
+  await ensurePlatformOwnerSeed();
 
   const demoPassword = getSeedPassword();
 
@@ -519,6 +568,76 @@ async function ensureAuthSeed(propertyId: string) {
       ...(maria.apartmentId ? { apartmentId: maria.apartmentId } : {})
     });
   }
+}
+
+async function ensurePlatformOwnerSeed() {
+  const ownerEmails = new Set([
+    "admin@voltaria.local",
+    process.env.FIRST_OWNER_EMAIL?.trim().toLowerCase() || "admin@voltaria.local"
+  ]);
+
+  for (const email of ownerEmails) {
+    const [user] = await db
+      .select({ id: appUsers.id, platformRole: appUsers.platformRole })
+      .from(appUsers)
+      .where(eq(appUsers.email, email))
+      .limit(1);
+
+    if (!user || user.platformRole === "platform_owner") {
+      continue;
+    }
+
+    await db
+      .update(appUsers)
+      .set({ platformRole: "platform_owner", updatedAt: new Date() })
+      .where(eq(appUsers.id, user.id));
+  }
+}
+
+async function ensureDemoGatewaySeed(organizationId: string, propertyId: string) {
+  const code = "GW-TORRE-AURORA-SIM";
+  const devTokenHash = hashGatewayToken("voltaria-demo-gateway-token");
+  const [existing] = await db
+    .select()
+    .from(gatewayDevices)
+    .where(eq(gatewayDevices.code, code))
+    .limit(1);
+
+  const values = {
+    organizationId,
+    propertyId,
+    code,
+    name: "Gateway Simulado Torre Aurora",
+    kind: "simulator" as const,
+    status: "online" as const,
+    authTokenHash: existing?.authTokenHash ?? devTokenHash,
+    tokenLastRotatedAt: existing?.tokenLastRotatedAt ?? new Date(),
+    lastSeenAt: new Date(),
+    config: {
+      pollIntervalMs: 3000,
+      meterIntervalMs: 10000,
+      workerScope: "all_simulated"
+    },
+    metadata: { seeded: true, simulated: true },
+    updatedAt: new Date()
+  };
+
+  const [gateway] = existing
+    ? await db
+        .update(gatewayDevices)
+        .set(values)
+        .where(eq(gatewayDevices.id, existing.id))
+        .returning()
+    : await db.insert(gatewayDevices).values(values).returning();
+
+  if (!gateway) {
+    return;
+  }
+
+  await db
+    .update(chargers)
+    .set({ gatewayId: gateway.id, updatedAt: new Date() })
+    .where(and(eq(chargers.propertyId, propertyId), eq(chargers.kind, "controlled_outlet")));
 }
 
 async function ensureSeedAppUser(input: {

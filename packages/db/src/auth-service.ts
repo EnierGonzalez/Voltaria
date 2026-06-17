@@ -1,6 +1,9 @@
 import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
-import type { AppPermission, AppRole } from "@voltaria/shared";
-import { getPermissionsForRole, roleHasPermission } from "@voltaria/shared";
+import type { AppPermission, AppRole, PlatformRole } from "@voltaria/shared";
+import {
+  getPermissionsForPlatformRole,
+  getPermissionsForRole
+} from "@voltaria/shared";
 import type { VoltariaDb } from "./client";
 import {
   createSessionCookieOptions,
@@ -70,6 +73,7 @@ export type CurrentUser = {
   phone: string | null;
   status: "active" | "invited" | "suspended" | "disabled";
   userType: "staff" | "resident" | "service";
+  platformRole: PlatformRole;
   mustChangePassword: boolean;
   memberships: CurrentUserMembership[];
   activeMembership: CurrentUserMembership | null;
@@ -83,6 +87,7 @@ export type AppUserSummary = {
   phone: string | null;
   status: "active" | "invited" | "suspended" | "disabled";
   userType: "staff" | "resident" | "service";
+  platformRole: PlatformRole;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
   disabledAt: string | null;
@@ -105,6 +110,7 @@ export async function createUser(
     userType: "staff" | "resident" | "service";
     status?: "active" | "invited" | "suspended" | "disabled";
     phone?: string;
+    platformRole?: PlatformRole;
     password?: string;
     mustChangePassword?: boolean;
     metadata?: Record<string, unknown>;
@@ -125,6 +131,7 @@ export async function createUser(
       fullName: input.fullName.trim(),
       userType: input.userType,
       status: input.status ?? "active",
+      platformRole: input.platformRole ?? "none",
       phone: input.phone?.trim() || null,
       passwordHash,
       mustChangePassword: input.mustChangePassword ?? true,
@@ -244,7 +251,10 @@ export async function authenticateUser(
 
   const currentUser = await buildCurrentUser(db, user.id);
 
-  if (!currentUser || currentUser.memberships.length === 0) {
+  if (
+    !currentUser ||
+    (currentUser.memberships.length === 0 && currentUser.platformRole === "none")
+  ) {
     await recordUserAuditEvent(db, {
       userId: user.id,
       action: "user.login_failed",
@@ -631,6 +641,7 @@ export async function listAppUsers(db: VoltariaDb, propertyId: string): Promise<
       phone: appUsers.phone,
       status: appUsers.status,
       userType: appUsers.userType,
+      platformRole: appUsers.platformRole,
       mustChangePassword: appUsers.mustChangePassword,
       lastLoginAt: appUsers.lastLoginAt,
       disabledAt: appUsers.disabledAt,
@@ -729,7 +740,11 @@ async function buildCurrentUser(db: VoltariaDb, userId: string): Promise<Current
     .orderBy(userPropertyMemberships.createdAt);
 
   const activeMembership = memberships[0] ?? null;
-  const permissions = activeMembership ? getPermissionsForRole(activeMembership.role) : [];
+  const permissionSet = new Set<AppPermission>([
+    ...getPermissionsForPlatformRole(user.platformRole),
+    ...(activeMembership ? getPermissionsForRole(activeMembership.role) : [])
+  ]);
+  const permissions = [...permissionSet];
 
   return {
     id: user.id,
@@ -738,6 +753,7 @@ async function buildCurrentUser(db: VoltariaDb, userId: string): Promise<Current
     phone: user.phone,
     status: user.status,
     userType: user.userType,
+    platformRole: user.platformRole,
     mustChangePassword: user.mustChangePassword,
     memberships,
     activeMembership,
@@ -843,5 +859,5 @@ function scrubRequestMeta(meta: AuthRequestMeta) {
 }
 
 export function canUser(user: CurrentUser, permission: AppPermission) {
-  return user.activeMembership ? roleHasPermission(user.activeMembership.role, permission) : false;
+  return user.permissions.includes(permission);
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { appRoles } from "./permissions";
+import { appRoles, platformRoles } from "./permissions";
 
 export const propertyIdSchema = z.string().min(1);
 
@@ -144,6 +144,8 @@ export const reportsPeriodQuerySchema = z
 
 export const appRoleSchema = z.enum(appRoles);
 
+export const platformRoleSchema = z.enum(platformRoles);
+
 export const appUserStatusSchema = z.enum(["active", "invited", "suspended", "disabled"]);
 
 export const appUserTypeSchema = z.enum(["staff", "resident", "service"]);
@@ -202,6 +204,83 @@ export const userTemporaryPasswordSchema = z.object({
   temporaryPassword: passwordStrengthSchema
 });
 
+export const organizationSlugSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(120)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+export const gatewayKindSchema = z.enum(["simulator", "local_gateway"]);
+
+export const gatewayCodeSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(120)
+  .regex(/^[A-Za-z0-9-]+$/)
+  .transform((value) => value.toUpperCase());
+
+export const tenantProvisioningSchema = z.object({
+  organizationName: z.string().trim().min(2).max(180),
+  organizationSlug: organizationSlugSchema,
+  contactName: z.string().trim().max(180).optional(),
+  contactEmail: z
+    .string()
+    .trim()
+    .email()
+    .max(180)
+    .transform((value) => value.toLowerCase())
+    .optional(),
+  contactPhone: z.string().trim().max(60).optional(),
+  plan: z.enum(["demo", "standard", "pro", "enterprise"]).default("demo"),
+  propertyName: z.string().trim().min(2).max(160),
+  propertyCode: z
+    .string()
+    .trim()
+    .min(2)
+    .max(32)
+    .regex(/^[A-Za-z0-9-]+$/)
+    .transform((value) => value.toUpperCase()),
+  address: z.string().trim().max(500).optional(),
+  timezone: z.string().trim().min(3).max(80).default("America/Cancun"),
+  currency: z
+    .string()
+    .trim()
+    .length(3)
+    .default("MXN")
+    .transform((value) => value.toUpperCase()),
+  outletCount: z.coerce.number().int().min(1).max(128),
+  outletPrefix: z
+    .string()
+    .trim()
+    .min(2)
+    .max(32)
+    .regex(/^[A-Za-z0-9-]+$/)
+    .transform((value) => value.toUpperCase()),
+  outletAreaLabel: z.string().trim().min(1).max(160).default("Área de carga"),
+  defaultVoltage: z.coerce.number().int().min(100).max(240).default(120),
+  defaultMaxCurrentAmp: z.coerce.number().min(1).max(80).default(12),
+  tariffName: z.string().trim().min(2).max(160).default("Tarifa residencial"),
+  pricePerKwh: z.coerce.number().min(0).max(1000),
+  allowRfid: z.boolean().default(true),
+  allowMobile: z.boolean().default(true),
+  maxActiveSessionsPerResident: z.coerce.number().int().min(1).max(64).default(1),
+  maxSessionDurationMinutes: z.coerce.number().int().min(15).max(24 * 60).default(480),
+  initialAdminEmail: z
+    .string()
+    .trim()
+    .email()
+    .max(180)
+    .transform((value) => value.toLowerCase()),
+  initialAdminName: z.string().trim().min(2).max(180),
+  initialAdminRole: z.enum(["owner", "admin"]).default("owner"),
+  createDemoUsers: z.boolean().default(false),
+  createGateway: z.boolean().default(true),
+  gatewayKind: gatewayKindSchema.default("simulator"),
+  gatewayCode: gatewayCodeSchema.optional()
+});
+
 export const sessionTelemetrySchema = z.object({
   propertyId: propertyIdSchema,
   chargerId: z.string().min(1),
@@ -248,3 +327,5 @@ export type UserCreateInput = z.infer<typeof userCreateSchema>;
 export type UserStatusUpdateInput = z.infer<typeof userStatusUpdateSchema>;
 
 export type UserRoleUpdateInput = z.infer<typeof userRoleUpdateSchema>;
+
+export type TenantProvisioningInput = z.infer<typeof tenantProvisioningSchema>;

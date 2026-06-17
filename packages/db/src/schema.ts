@@ -241,13 +241,80 @@ export const userMembershipStatusEnum = pgEnum("user_membership_status", [
   "disabled"
 ]);
 
+export const organizationStatusEnum = pgEnum("organization_status", [
+  "active",
+  "trial",
+  "suspended",
+  "disabled"
+]);
+
+export const organizationPlanEnum = pgEnum("organization_plan", [
+  "demo",
+  "standard",
+  "pro",
+  "enterprise"
+]);
+
+export const platformRoleEnum = pgEnum("platform_role", [
+  "none",
+  "platform_owner",
+  "platform_admin",
+  "platform_support"
+]);
+
+export const gatewayKindEnum = pgEnum("gateway_kind", [
+  "simulator",
+  "local_gateway",
+  "milesight",
+  "plc",
+  "modbus",
+  "mqtt",
+  "http"
+]);
+
+export const gatewayStatusEnum = pgEnum("gateway_status", [
+  "provisioned",
+  "online",
+  "offline",
+  "disabled",
+  "revoked"
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 };
 
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 180 }).notNull(),
+    slug: varchar("slug", { length: 120 }).notNull(),
+    legalName: varchar("legal_name", { length: 220 }),
+    taxId: varchar("tax_id", { length: 80 }),
+    contactName: varchar("contact_name", { length: 180 }),
+    contactEmail: varchar("contact_email", { length: 180 }),
+    contactPhone: varchar("contact_phone", { length: 60 }),
+    status: organizationStatusEnum("status").default("trial").notNull(),
+    plan: organizationPlanEnum("plan").default("demo").notNull(),
+    timezone: varchar("timezone", { length: 80 }).default("America/Cancun").notNull(),
+    currency: varchar("currency", { length: 3 }).default("MXN").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("organizations_slug_idx").on(table.slug),
+    statusIdx: index("organizations_status_idx").on(table.status)
+  })
+);
+
 export const properties = pgTable("properties", {
   id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, {
+    onDelete: "set null"
+  }),
   name: varchar("name", { length: 160 }).notNull(),
   slug: varchar("slug", { length: 120 }).notNull().unique(),
   address: text("address"),
@@ -359,6 +426,7 @@ export const appUsers = pgTable(
     phone: varchar("phone", { length: 40 }),
     status: appUserStatusEnum("status").default("active").notNull(),
     userType: appUserTypeEnum("user_type").default("staff").notNull(),
+    platformRole: platformRoleEnum("platform_role").default("none").notNull(),
     passwordHash: text("password_hash"),
     mustChangePassword: boolean("must_change_password").default(true).notNull(),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -469,6 +537,40 @@ export const passwordResetTokens = pgTable(
   })
 );
 
+export const gatewayDevices = pgTable(
+  "gateway_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .notNull(),
+    propertyId: uuid("property_id")
+      .references(() => properties.id, { onDelete: "cascade" })
+      .notNull(),
+    code: varchar("code", { length: 120 }).notNull(),
+    name: varchar("name", { length: 180 }).notNull(),
+    kind: gatewayKindEnum("kind").default("simulator").notNull(),
+    status: gatewayStatusEnum("status").default("provisioned").notNull(),
+    authTokenHash: text("auth_token_hash"),
+    tokenLastRotatedAt: timestamp("token_last_rotated_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    lastIp: varchar("last_ip", { length: 80 }),
+    version: varchar("version", { length: 80 }),
+    config: jsonb("config").$type<Record<string, unknown>>().default({}).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    codeIdx: uniqueIndex("gateway_devices_code_idx").on(table.code),
+    propertyStatusIdx: index("gateway_devices_property_status_idx").on(
+      table.propertyId,
+      table.status
+    ),
+    organizationIdx: index("gateway_devices_organization_idx").on(table.organizationId)
+  })
+);
+
 export const chargers = pgTable(
   "chargers",
   {
@@ -476,6 +578,7 @@ export const chargers = pgTable(
     propertyId: uuid("property_id")
       .references(() => properties.id, { onDelete: "cascade" })
       .notNull(),
+    gatewayId: uuid("gateway_id").references(() => gatewayDevices.id, { onDelete: "set null" }),
     kind: chargingPointKindEnum("kind").default("ocpp_charger").notNull(),
     ocppIdentity: varchar("ocpp_identity", { length: 120 }).notNull(),
     name: varchar("name", { length: 160 }).notNull(),
@@ -499,6 +602,7 @@ export const chargers = pgTable(
       table.ocppIdentity
     ),
     propertyStatusIdx: index("chargers_property_status_idx").on(table.propertyId, table.status),
+    gatewayIdx: index("chargers_gateway_idx").on(table.gatewayId),
     publicAccessCodeIdx: uniqueIndex("chargers_public_access_code_idx").on(table.publicAccessCode)
   })
 );
@@ -578,12 +682,19 @@ export const deviceCommands = pgTable(
     propertyId: uuid("property_id")
       .references(() => properties.id, { onDelete: "cascade" })
       .notNull(),
+    gatewayId: uuid("gateway_id").references(() => gatewayDevices.id, { onDelete: "set null" }),
     chargerId: uuid("charger_id").references(() => chargers.id, { onDelete: "cascade" }),
     sessionId: uuid("session_id").references(() => chargingSessions.id, { onDelete: "set null" }),
     commandType: deviceCommandTypeEnum("command_type").notNull(),
     status: deviceCommandStatusEnum("status").default("pending").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
     requestedBy: varchar("requested_by", { length: 120 }),
+    lockedBy: varchar("locked_by", { length: 160 }),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    attempts: integer("attempts").default(0).notNull(),
+    lastError: text("last_error"),
+    idempotencyKey: varchar("idempotency_key", { length: 160 }),
+    availableAt: timestamp("available_at", { withTimezone: true }),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     ...timestamps
   },
@@ -595,7 +706,14 @@ export const deviceCommands = pgTable(
     chargerCreatedIdx: index("device_commands_charger_created_idx").on(
       table.chargerId,
       table.createdAt
-    )
+    ),
+    gatewayStatusIdx: index("device_commands_gateway_status_idx").on(
+      table.gatewayId,
+      table.status,
+      table.availableAt
+    ),
+    lockIdx: index("device_commands_lock_idx").on(table.lockedAt, table.lockedBy),
+    idempotencyIdx: uniqueIndex("device_commands_idempotency_idx").on(table.idempotencyKey)
   })
 );
 
@@ -1235,7 +1353,16 @@ export const systemEvents = pgTable(
   })
 );
 
-export const propertiesRelations = relations(properties, ({ many }) => ({
+export const organizationsRelations = relations(organizations, ({ many }) => ({
+  properties: many(properties),
+  gateways: many(gatewayDevices)
+}));
+
+export const propertiesRelations = relations(properties, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [properties.organizationId],
+    references: [organizations.id]
+  }),
   apartments: many(apartments),
   residents: many(residents),
   userMemberships: many(userPropertyMemberships),
@@ -1257,7 +1384,8 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   billingCycles: many(billingCycles),
   billingCycleItems: many(billingCycleItems),
   billingCycleSessionItems: many(billingCycleSessionItems),
-  exportJobs: many(exportJobs)
+  exportJobs: many(exportJobs),
+  gateways: many(gatewayDevices)
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -1378,10 +1506,27 @@ export const passwordResetTokensRelations = relations(passwordResetTokens, ({ on
   })
 }));
 
+export const gatewayDevicesRelations = relations(gatewayDevices, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [gatewayDevices.organizationId],
+    references: [organizations.id]
+  }),
+  property: one(properties, {
+    fields: [gatewayDevices.propertyId],
+    references: [properties.id]
+  }),
+  chargers: many(chargers),
+  deviceCommands: many(deviceCommands)
+}));
+
 export const chargersRelations = relations(chargers, ({ one, many }) => ({
   property: one(properties, {
     fields: [chargers.propertyId],
     references: [properties.id]
+  }),
+  gateway: one(gatewayDevices, {
+    fields: [chargers.gatewayId],
+    references: [gatewayDevices.id]
   }),
   connectors: many(chargerConnectors),
   sessions: many(chargingSessions),
@@ -1628,6 +1773,10 @@ export const deviceCommandsRelations = relations(deviceCommands, ({ one }) => ({
   property: one(properties, {
     fields: [deviceCommands.propertyId],
     references: [properties.id]
+  }),
+  gateway: one(gatewayDevices, {
+    fields: [deviceCommands.gatewayId],
+    references: [gatewayDevices.id]
   }),
   charger: one(chargers, {
     fields: [deviceCommands.chargerId],

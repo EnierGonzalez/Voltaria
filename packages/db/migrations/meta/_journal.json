@@ -43,6 +43,13 @@
       "when": 1778083809532,
       "tag": "0005_hesitant_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781708629168,
+      "tag": "0006_long_sumo",
+      "breakpoints": true
     }
   ]
 }

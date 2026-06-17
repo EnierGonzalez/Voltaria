@@ -11,6 +11,11 @@ export const appRoles = [
 export type AppRole = (typeof appRoles)[number];
 
 export const appPermissions = [
+  "platform.tenants.view",
+  "platform.tenants.manage",
+  "platform.gateways.view",
+  "platform.gateways.manage",
+  "platform.impersonate_property",
   "dashboard.view",
   "outlets.view",
   "outlets.control",
@@ -51,11 +56,23 @@ export const appPermissions = [
 
 export type AppPermission = (typeof appPermissions)[number];
 
+export const platformRoles = [
+  "none",
+  "platform_owner",
+  "platform_admin",
+  "platform_support"
+] as const;
+
+export type PlatformRole = (typeof platformRoles)[number];
+
 const allPermissions = [...appPermissions];
+const propertyPermissions = appPermissions.filter(
+  (permission) => !permission.startsWith("platform.")
+);
 
 export const rolePermissions: Record<AppRole, AppPermission[]> = {
-  owner: allPermissions,
-  admin: allPermissions.filter((permission) => permission !== "users.manage_roles"),
+  owner: propertyPermissions,
+  admin: propertyPermissions.filter((permission) => permission !== "users.manage_roles"),
   operations: [
     "dashboard.view",
     "outlets.view",
@@ -101,8 +118,21 @@ export const rolePermissions: Record<AppRole, AppPermission[]> = {
   ]
 };
 
+export const platformRolePermissions: Record<PlatformRole, AppPermission[]> = {
+  none: [],
+  platform_owner: allPermissions,
+  platform_admin: allPermissions.filter(
+    (permission) => permission !== "platform.impersonate_property"
+  ),
+  platform_support: ["platform.tenants.view", "platform.gateways.view", "system.health.view"]
+};
+
 export function getPermissionsForRole(role: AppRole): AppPermission[] {
   return rolePermissions[role];
+}
+
+export function getPermissionsForPlatformRole(role: PlatformRole): AppPermission[] {
+  return platformRolePermissions[role];
 }
 
 export function roleHasPermission(role: AppRole, permission: AppPermission) {

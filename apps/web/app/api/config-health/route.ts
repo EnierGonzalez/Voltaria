@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadDatabaseEnv } from "@voltaria/db";
+import { createDbClientIfConfigured, getPlatformConfigHealthCounts, loadDatabaseEnv } from "@voltaria/db";
 import { getDeploymentConfigStatus } from "@/lib/deployment";
 
 loadDatabaseEnv();
@@ -7,10 +7,35 @@ loadDatabaseEnv();
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export async function GET() {
   const status = getDeploymentConfigStatus();
+  let organizationsCount: number | null = null;
+  let gatewaysCount: number | null = null;
 
-  return NextResponse.json(status, {
+  const context = createDbClientIfConfigured();
+
+  if (context) {
+    try {
+      const counts = await getPlatformConfigHealthCounts(context.db);
+      organizationsCount = counts.organizationsCount;
+      gatewaysCount = counts.gatewaysCount;
+    } catch {
+      organizationsCount = null;
+      gatewaysCount = null;
+    } finally {
+      await context.client.end();
+    }
+  }
+
+  return NextResponse.json({
+    ...status,
+    organizationsCount,
+    gatewaysCount,
+    workerConfig: {
+      workerScopeConfigured: Boolean(process.env.WORKER_SCOPE?.trim()),
+      gatewayCodeConfigured: Boolean(process.env.WORKER_GATEWAY_CODE?.trim())
+    }
+  }, {
     status: status.status === "ok" ? 200 : 503
   });
 }

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   PlugZap,
   RadioTower,
+  ServerCog,
   Settings,
   ShieldCheck,
   TriangleAlert,
@@ -22,6 +23,7 @@ import type { CurrentUser } from "@voltaria/db";
 import { logoutAction } from "@/lib/actions/auth-actions";
 
 const navItems = [
+  { label: "Platform", href: "/platform", icon: ServerCog, permission: "platform.tenants.view" },
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
   { label: "Puntos", href: "/chargers", icon: PlugZap, permission: "outlets.view" },
   { label: "Tomas", href: "/outlets", icon: Zap, permission: "outlets.view" },
@@ -44,6 +46,10 @@ const navItems = [
 
 const titleByPath: Record<string, string> = {
   "/dashboard": "Dashboard",
+  "/platform": "Platform",
+  "/platform/tenants": "Tenants",
+  "/platform/tenants/new": "Nuevo tenant",
+  "/platform/gateways": "Gateways",
   "/chargers": "Puntos de carga",
   "/outlets": "Tomas 120V",
   "/sessions": "Sessions",
@@ -71,7 +77,9 @@ export function AdminShell({
   const pathname = usePathname();
   const title =
     titleByPath[pathname] ??
-    (pathname.startsWith("/chargers/")
+    (pathname.startsWith("/platform/tenants/")
+      ? "Tenant"
+      : pathname.startsWith("/chargers/")
       ? "Detalle de punto"
       : pathname.startsWith("/outlets")
         ? "Tomas 120V"
@@ -112,15 +120,20 @@ export function AdminShell({
               ...(item.badge ? { badge: item.badge } : {})
             };
           })}
-          footerLabel={property?.propertyName ?? "Property"}
-          footerMeta={currentUser.activeMembership?.role ?? "Sin rol activo"}
+          footerLabel={property?.propertyName ?? "Platform"}
+          footerMeta={
+            currentUser.activeMembership?.role ??
+            (currentUser.platformRole !== "none" ? currentUser.platformRole : "Sin rol activo")
+          }
         />
       }
       topbar={
         <TopBar
           title={title}
           subtitle={
-            property ? `${property.propertyName} · ${currentUser.fullName}` : currentUser.fullName
+            property
+              ? `${property.propertyName} · ${currentUser.fullName}`
+              : `${currentUser.platformRole} · ${currentUser.fullName}`
           }
           {...(property?.propertyName ? { propertyName: property.propertyName } : {})}
           actions={

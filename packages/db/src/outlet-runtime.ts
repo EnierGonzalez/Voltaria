@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { VoltariaDb } from "./client";
 import {
   evaluateOutletAvailability,
@@ -54,6 +54,15 @@ export type OutletSimulatorTickResult = {
   noLoadSessions: number;
   overCurrentSessions: number;
   ruleStoppedSessions: number;
+};
+
+export type OutletSimulatorRunOptions = {
+  workerInstanceId?: string;
+  scope?: "all_simulated" | "property" | "gateway";
+  propertyId?: string;
+  gatewayId?: string;
+  meterIntervalMs?: number;
+  staleLockMs?: number;
 };
 
 export async function getCurrentDemoResident(db: DbExecutor): Promise<RuntimeResident | null> {
@@ -242,6 +251,7 @@ export async function startMobileOutletSession(
       .insert(deviceCommands)
       .values({
         propertyId: outlet.propertyId,
+        gatewayId: outlet.gatewayId,
         chargerId: outlet.id,
         sessionId: session.id,
         commandType: "enable",
@@ -293,6 +303,7 @@ export async function requestStopOutletSession(
         id: chargingSessions.id,
         propertyId: chargingSessions.propertyId,
         chargerId: chargingSessions.chargerId,
+        gatewayId: chargers.gatewayId,
         residentId: chargingSessions.residentId,
         status: chargingSessions.status,
         residentEmail: residents.email,
@@ -350,6 +361,7 @@ export async function requestStopOutletSession(
       .insert(deviceCommands)
       .values({
         propertyId: session.propertyId,
+        gatewayId: session.gatewayId,
         chargerId: session.chargerId,
         sessionId: session.id,
         commandType: "disable",
@@ -401,9 +413,12 @@ export async function adminEnableOutlet(db: VoltariaDb, outletId: string): Promi
   return createAdminOutletCommand(db, outletId, "enable");
 }
 
-export async function runOutletSimulatorTick(db: VoltariaDb): Promise<OutletSimulatorTickResult> {
-  const processedCommands = await pollPendingCommands(db);
-  const meterValuesCount = await generateMeterValuesForActiveSessions(db);
+export async function runOutletSimulatorTick(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+): Promise<OutletSimulatorTickResult> {
+  const processedCommands = await pollPendingCommands(db, options);
+  const meterValuesCount = await generateMeterValuesForActiveSessions(db, options);
   const timedOutSessions = await detectPendingStartTimeouts(db);
   const ruleStoppedSessions = await detectRuleLimitSessions(db);
   const noLoadSessions = await detectNoLoadSessions(db);
@@ -419,17 +434,40 @@ export async function runOutletSimulatorTick(db: VoltariaDb): Promise<OutletSimu
   };
 }
 
-export async function pollPendingCommands(db: VoltariaDb) {
+export async function pollPendingCommands(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const now = new Date();
+  const staleLockCutoff = new Date(now.getTime() - (options.staleLockMs ?? 60_000));
+  const conditions = [
+    eq(deviceCommands.status, "pending"),
+    or(isNull(deviceCommands.availableAt), lt(deviceCommands.availableAt, now)),
+    or(isNull(deviceCommands.lockedAt), lt(deviceCommands.lockedAt, staleLockCutoff)),
+    options.scope === "property" && options.propertyId
+      ? eq(deviceCommands.propertyId, options.propertyId)
+      : undefined,
+    options.scope === "gateway" && options.gatewayId
+      ? eq(deviceCommands.gatewayId, options.gatewayId)
+      : undefined
+  ].filter(Boolean);
+
   const commands = await db
     .select()
     .from(deviceCommands)
-    .where(eq(deviceCommands.status, "pending"))
+    .where(and(...conditions))
     .orderBy(asc(deviceCommands.createdAt))
     .limit(25);
 
   let processed = 0;
 
   for (const command of commands) {
+    const claimed = await claimCommand(db, command.id, options.workerInstanceId);
+
+    if (!claimed) {
+      continue;
+    }
+
     if (command.commandType === "enable") {
       await processEnableCommand(db, command.id);
       processed += 1;
@@ -450,6 +488,34 @@ export async function pollPendingCommands(db: VoltariaDb) {
   }
 
   return processed;
+}
+
+async function claimCommand(
+  db: VoltariaDb,
+  commandId: string,
+  workerInstanceId = "outlet-simulator"
+) {
+  const now = new Date();
+  const staleLockCutoff = new Date(now.getTime() - 60_000);
+  const [claimed] = await db
+    .update(deviceCommands)
+    .set({
+      lockedBy: workerInstanceId,
+      lockedAt: now,
+      attempts: sql`${deviceCommands.attempts} + 1`,
+      lastError: null,
+      updatedAt: now
+    })
+    .where(
+      and(
+        eq(deviceCommands.id, commandId),
+        eq(deviceCommands.status, "pending"),
+        or(isNull(deviceCommands.lockedAt), lt(deviceCommands.lockedAt, staleLockCutoff))
+      )
+    )
+    .returning({ id: deviceCommands.id });
+
+  return Boolean(claimed);
 }
 
 export async function processEnableCommand(db: VoltariaDb, commandId: string) {
@@ -556,7 +622,18 @@ export async function processDisableCommand(
   });
 }
 
-export async function generateMeterValuesForActiveSessions(db: VoltariaDb) {
+export async function generateMeterValuesForActiveSessions(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const conditions = [
+    eq(chargers.kind, "controlled_outlet"),
+    eq(chargingSessions.status, "active"),
+    options.scope === "property" && options.propertyId
+      ? eq(chargingSessions.propertyId, options.propertyId)
+      : undefined,
+    options.scope === "gateway" && options.gatewayId ? eq(chargers.gatewayId, options.gatewayId) : undefined
+  ].filter(Boolean);
   const activeSessions = await db
     .select({
       id: chargingSessions.id,
@@ -575,7 +652,7 @@ export async function generateMeterValuesForActiveSessions(db: VoltariaDb) {
     .from(chargingSessions)
     .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
     .leftJoin(tariffs, and(eq(tariffs.propertyId, chargingSessions.propertyId), eq(tariffs.isActive, true)))
-    .where(and(eq(chargers.kind, "controlled_outlet"), eq(chargingSessions.status, "active")));
+    .where(and(...conditions));
 
   let inserted = 0;
 
@@ -583,7 +660,7 @@ export async function generateMeterValuesForActiveSessions(db: VoltariaDb) {
     const latest = await getLatestSessionMeterValue(db, session.id);
     const now = new Date();
 
-    if (latest && now.getTime() - latest.sampledAt.getTime() < 10_000) {
+    if (latest && now.getTime() - latest.sampledAt.getTime() < (options.meterIntervalMs ?? 10_000)) {
       continue;
     }
 
@@ -640,8 +717,15 @@ export async function generateMeterValuesForActiveSessions(db: VoltariaDb) {
 
 export async function detectPendingStartTimeouts(db: VoltariaDb) {
   const sessions = await db
-    .select()
+    .select({
+      id: chargingSessions.id,
+      propertyId: chargingSessions.propertyId,
+      chargerId: chargingSessions.chargerId,
+      gatewayId: chargers.gatewayId,
+      startedAt: chargingSessions.startedAt
+    })
     .from(chargingSessions)
+    .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
     .where(eq(chargingSessions.status, "pending_start"))
     .limit(50);
 
@@ -660,6 +744,7 @@ export async function detectPendingStartTimeouts(db: VoltariaDb) {
 
       await tx.insert(deviceCommands).values({
         propertyId: session.propertyId,
+        gatewayId: session.gatewayId,
         chargerId: session.chargerId,
         sessionId: session.id,
         commandType: "disable",
@@ -825,9 +910,10 @@ async function createAdminOutletCommand(
 
   const [command] = await db
     .insert(deviceCommands)
-    .values({
-      propertyId: outlet.propertyId,
-      chargerId: outlet.id,
+      .values({
+        propertyId: outlet.propertyId,
+        gatewayId: outlet.gatewayId,
+        chargerId: outlet.id,
       commandType,
       status: "pending",
       payload: {
@@ -850,9 +936,11 @@ async function createRuleStopCommand(db: VoltariaDb, sessionId: string, reason: 
     .select({
       id: chargingSessions.id,
       propertyId: chargingSessions.propertyId,
-      chargerId: chargingSessions.chargerId
+      chargerId: chargingSessions.chargerId,
+      gatewayId: chargers.gatewayId
     })
     .from(chargingSessions)
+    .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
     .where(eq(chargingSessions.id, sessionId))
     .limit(1);
 
@@ -881,6 +969,7 @@ async function createRuleStopCommand(db: VoltariaDb, sessionId: string, reason: 
       .insert(deviceCommands)
       .values({
         propertyId: session.propertyId,
+        gatewayId: session.gatewayId,
         chargerId: session.chargerId,
         sessionId: session.id,
         commandType: "disable",
