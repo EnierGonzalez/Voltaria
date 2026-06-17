@@ -1,4 +1,4 @@
-import { renderTenantBilling } from "@/lib/tenant-page-renderers";
+import { redirectLegacyAppPropertyRoute } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +8,5 @@ export default async function TenantBillingPage({
   params: Promise<{ propertySlug: string }>;
 }) {
   const { propertySlug } = await params;
-  return renderTenantBilling(propertySlug);
+  await redirectLegacyAppPropertyRoute(propertySlug, "billing");
 }

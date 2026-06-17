@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { VoltariaDb } from "./client";
 import {
   alerts,
@@ -61,6 +61,9 @@ export type PlatformTenantDetail = PlatformTenantSummary & {
     timezone: string;
     billingCurrency: string;
     outletsCount: number;
+    sessionsCount: number;
+    usersCount: number;
+    gatewaysCount: number;
   }>;
   gateways: PlatformGatewaySummary[];
   usersCount: number;
@@ -86,11 +89,34 @@ export type TenantPropertyContext = {
   } | null;
 };
 
-export async function getTenantPropertyContextBySlug(
+export type TenantIsolationDiagnostic = {
+  organizationId: string | null;
+  organizationName: string;
+  organizationSlug: string | null;
+  propertyId: string | null;
+  propertyName: string;
+  propertySlug: string | null;
+  outletsCount: number;
+  sessionsCount: number;
+  gatewaysCount: number;
+  usersCount: number;
+  warnings: string[];
+};
+
+export async function getTenantPropertyContextByPropertySlug(
   db: VoltariaDb,
   propertySlug: string
 ): Promise<TenantPropertyContext | null> {
-  const [row] = await db
+  const rows = await getTenantPropertyContextsByPropertySlug(db, propertySlug);
+
+  return rows.length === 1 ? rows[0] ?? null : null;
+}
+
+export async function getTenantPropertyContextsByPropertySlug(
+  db: VoltariaDb,
+  propertySlug: string
+): Promise<TenantPropertyContext[]> {
+  const rows = await db
     .select({
       propertyId: properties.id,
       propertyName: properties.name,
@@ -106,14 +132,9 @@ export async function getTenantPropertyContextBySlug(
     })
     .from(properties)
     .leftJoin(organizations, eq(organizations.id, properties.organizationId))
-    .where(eq(properties.slug, propertySlug))
-    .limit(1);
+    .where(eq(properties.slug, propertySlug));
 
-  if (!row) {
-    return null;
-  }
-
-  return {
+  return rows.map((row) => ({
     property: {
       id: row.propertyId,
       name: row.propertyName,
@@ -132,6 +153,54 @@ export async function getTenantPropertyContextBySlug(
           plan: row.organizationPlan ?? "demo"
         }
       : null
+  }));
+}
+
+export async function getTenantPropertyContextBySlugs(
+  db: VoltariaDb,
+  organizationSlug: string,
+  propertySlug: string
+): Promise<TenantPropertyContext | null> {
+  const [row] = await db
+    .select({
+      propertyId: properties.id,
+      propertyName: properties.name,
+      propertySlug: properties.slug,
+      propertyAddress: properties.address,
+      propertyTimezone: properties.timezone,
+      propertyBillingCurrency: properties.billingCurrency,
+      organizationId: organizations.id,
+      organizationName: organizations.name,
+      organizationSlug: organizations.slug,
+      organizationStatus: organizations.status,
+      organizationPlan: organizations.plan
+    })
+    .from(organizations)
+    .innerJoin(properties, eq(properties.organizationId, organizations.id))
+    .where(and(eq(organizations.slug, organizationSlug), eq(properties.slug, propertySlug)))
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    property: {
+      id: row.propertyId,
+      name: row.propertyName,
+      slug: row.propertySlug,
+      address: row.propertyAddress,
+      timezone: row.propertyTimezone,
+      billingCurrency: row.propertyBillingCurrency,
+      organizationId: row.organizationId
+    },
+    organization: {
+      id: row.organizationId,
+      name: row.organizationName,
+      slug: row.organizationSlug,
+      status: row.organizationStatus,
+      plan: row.organizationPlan
+    }
   };
 }
 
@@ -187,7 +256,7 @@ export async function getPlatformTenants(db: VoltariaDb): Promise<PlatformTenant
       contactName: organizations.contactName,
       contactEmail: organizations.contactEmail,
       createdAt: organizations.createdAt,
-      primaryPropertySlug: sql<string | null>`min(${properties.slug})`,
+      primaryPropertySlug: sql<string | null>`min(${properties.slug}) filter (where ${properties.id} is not null)`,
       propertiesCount: sql<number>`count(distinct ${properties.id})::int`,
       gatewaysCount: sql<number>`count(distinct ${gatewayDevices.id})::int`,
       outletsCount: sql<number>`count(distinct ${chargers.id}) filter (where ${chargers.kind} = 'controlled_outlet')::int`
@@ -245,10 +314,16 @@ export async function getPlatformTenantDetail(
       address: properties.address,
       timezone: properties.timezone,
       billingCurrency: properties.billingCurrency,
-      outletsCount: sql<number>`count(${chargers.id}) filter (where ${chargers.kind} = 'controlled_outlet')::int`
+      outletsCount: sql<number>`count(distinct ${chargers.id}) filter (where ${chargers.kind} = 'controlled_outlet')::int`,
+      sessionsCount: sql<number>`count(distinct ${chargingSessions.id})::int`,
+      usersCount: sql<number>`count(distinct ${userPropertyMemberships.userId})::int`,
+      gatewaysCount: sql<number>`count(distinct ${gatewayDevices.id})::int`
     })
     .from(properties)
     .leftJoin(chargers, eq(chargers.propertyId, properties.id))
+    .leftJoin(chargingSessions, eq(chargingSessions.propertyId, properties.id))
+    .leftJoin(userPropertyMemberships, eq(userPropertyMemberships.propertyId, properties.id))
+    .leftJoin(gatewayDevices, eq(gatewayDevices.propertyId, properties.id))
     .where(eq(properties.organizationId, organizationId))
     .groupBy(properties.id)
     .orderBy(properties.createdAt);
@@ -312,4 +387,101 @@ export async function getPlatformConfigHealthCounts(db: VoltariaDb) {
     organizationsCount: orgs?.count ?? 0,
     gatewaysCount: gateways?.count ?? 0
   };
+}
+
+export async function getTenantIsolationDiagnostics(
+  db: VoltariaDb
+): Promise<TenantIsolationDiagnostic[]> {
+  const propertyRows = await db
+    .select({
+      organizationId: organizations.id,
+      organizationName: organizations.name,
+      organizationSlug: organizations.slug,
+      propertyId: properties.id,
+      propertyName: properties.name,
+      propertySlug: properties.slug,
+      outletsCount: sql<number>`count(distinct ${chargers.id}) filter (where ${chargers.kind} = 'controlled_outlet')::int`,
+      sessionsCount: sql<number>`count(distinct ${chargingSessions.id})::int`,
+      gatewaysCount: sql<number>`count(distinct ${gatewayDevices.id})::int`,
+      usersCount: sql<number>`count(distinct ${userPropertyMemberships.userId})::int`
+    })
+    .from(properties)
+    .leftJoin(organizations, eq(organizations.id, properties.organizationId))
+    .leftJoin(chargers, eq(chargers.propertyId, properties.id))
+    .leftJoin(chargingSessions, eq(chargingSessions.propertyId, properties.id))
+    .leftJoin(gatewayDevices, eq(gatewayDevices.propertyId, properties.id))
+    .leftJoin(userPropertyMemberships, eq(userPropertyMemberships.propertyId, properties.id))
+    .groupBy(properties.id, organizations.id)
+    .orderBy(organizations.name, properties.name);
+
+  const orphanGateways = await db
+    .select({
+      id: gatewayDevices.id,
+      organizationId: gatewayDevices.organizationId,
+      propertyId: gatewayDevices.propertyId,
+      propertyOrganizationId: properties.organizationId
+    })
+    .from(gatewayDevices)
+    .leftJoin(properties, eq(properties.id, gatewayDevices.propertyId))
+    .where(
+      sql`${properties.id} is null or ${gatewayDevices.organizationId} is distinct from ${properties.organizationId}`
+    );
+
+  const duplicateRows = await db
+    .select({
+      organizationId: properties.organizationId,
+      slug: properties.slug,
+      count: sql<number>`count(*)::int`
+    })
+    .from(properties)
+    .where(sql`${properties.organizationId} is not null`)
+    .groupBy(properties.organizationId, properties.slug)
+    .having(sql`count(*) > 1`);
+
+  const propertyWithoutOrganization = await db
+    .select({ id: properties.id })
+    .from(properties)
+    .where(isNull(properties.organizationId));
+
+  const warningByProperty = new Map<string, string[]>();
+
+  for (const gateway of orphanGateways) {
+    const key = gateway.propertyId;
+    const warnings = warningByProperty.get(key) ?? [];
+    warnings.push("Gateway con organization/property inconsistente");
+    warningByProperty.set(key, warnings);
+  }
+
+  for (const duplicate of duplicateRows) {
+    const matching = propertyRows.filter(
+      (row) => row.organizationId === duplicate.organizationId && row.propertySlug === duplicate.slug
+    );
+
+    for (const row of matching) {
+      if (!row.propertyId) continue;
+      const warnings = warningByProperty.get(row.propertyId) ?? [];
+      warnings.push("Slug duplicado dentro de la organización");
+      warningByProperty.set(row.propertyId, warnings);
+    }
+  }
+
+  for (const property of propertyWithoutOrganization) {
+    const warnings = warningByProperty.get(property.id) ?? [];
+    warnings.push("Propiedad sin organización");
+    warningByProperty.set(property.id, warnings);
+  }
+
+  return propertyRows.map((row) => ({
+    organizationId: row.organizationId,
+    organizationName: row.organizationName ?? "Sin organización",
+    organizationSlug: row.organizationSlug,
+    propertyId: row.propertyId,
+    propertyName: row.propertyName,
+    propertySlug: row.propertySlug,
+    outletsCount: row.outletsCount ?? 0,
+    sessionsCount: row.sessionsCount ?? 0,
+    gatewaysCount: row.gatewaysCount ?? 0,
+    usersCount: row.usersCount ?? 0,
+    warnings: row.propertyId ? warningByProperty.get(row.propertyId) ?? [] : []
+  }));
 }

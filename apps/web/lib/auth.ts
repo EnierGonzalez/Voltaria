@@ -5,7 +5,8 @@ import {
   createDbClient,
   createDbClientIfConfigured,
   getCurrentUserFromSession as dbGetCurrentUserFromSession,
-  getTenantPropertyContextBySlug,
+  getTenantPropertyContextsByPropertySlug,
+  getTenantPropertyContextBySlugs,
   loadDatabaseEnv,
   SESSION_COOKIE_NAME,
   type CurrentUser,
@@ -92,21 +93,29 @@ export type TenantContext = TenantPropertyContext & {
 
 export async function getTenantContextFromParams(
   params:
-    | { propertySlug: string }
-    | Promise<{ propertySlug: string }>,
+    | { organizationSlug: string; propertySlug: string }
+    | Promise<{ organizationSlug: string; propertySlug: string }>,
   permission?: AppPermission
 ) {
-  const { propertySlug } = await params;
-  return requireTenantMembership(propertySlug, permission, `/app/${propertySlug}/dashboard`);
+  const { organizationSlug, propertySlug } = await params;
+  return requireTenantMembership(
+    organizationSlug,
+    propertySlug,
+    permission,
+    `/app/${organizationSlug}/${propertySlug}/dashboard`
+  );
 }
 
 export async function requireTenantMembership(
+  organizationSlug: string,
   propertySlug: string,
   permission?: AppPermission,
-  next = `/app/${propertySlug}/dashboard`
+  next = `/app/${organizationSlug}/${propertySlug}/dashboard`
 ): Promise<TenantContext> {
   const user = await requireUser(next);
-  const tenant = await withDbContext(({ db }) => getTenantPropertyContextBySlug(db, propertySlug));
+  const tenant = await withDbContext(({ db }) =>
+    getTenantPropertyContextBySlugs(db, organizationSlug, propertySlug)
+  );
 
   if (!tenant) {
     notFound();
@@ -134,9 +143,19 @@ export async function requireTenantMembership(
     user,
     membership,
     permissions,
-    basePath: `/app/${tenant.property.slug}`,
+    basePath: `/app/${tenant.organization?.slug ?? organizationSlug}/${tenant.property.slug}`,
     isPlatformSupportMode: canSupportTenant
   };
+}
+
+export async function getPlatformContext(permission: AppPermission = "platform.tenants.view") {
+  const user = await requireUser("/platform");
+
+  if (!user.permissions.includes(permission)) {
+    redirect("/403");
+  }
+
+  return { user };
 }
 
 export function getDefaultAuthenticatedPath(user: CurrentUser) {
@@ -153,7 +172,7 @@ export function getDefaultAuthenticatedPath(user: CurrentUser) {
   const onlyMembership = activeMemberships[0];
 
   if (onlyMembership && activeMemberships.length === 1) {
-    return `/app/${onlyMembership.propertySlug}/dashboard`;
+    return `${membershipBasePath(onlyMembership)}/dashboard`;
   }
 
   if (activeMemberships.length > 1) {
@@ -170,7 +189,7 @@ export async function redirectLegacyTenantRoute(section: string) {
   const onlyMembership = activeMemberships[0];
 
   if (onlyMembership && activeMemberships.length === 1) {
-    redirect(`/app/${onlyMembership.propertySlug}/${section}`);
+    redirect(`${membershipBasePath(onlyMembership)}/${section}`);
   }
 
   if (activeMemberships.length > 1) {
@@ -182,6 +201,31 @@ export async function redirectLegacyTenantRoute(section: string) {
   }
 
   redirect("/403");
+}
+
+export async function redirectLegacyAppPropertyRoute(propertySlug: string, section = "dashboard") {
+  await requireUser(`/app/${propertySlug}/${section}`);
+  const tenants = await withDbContext(({ db }) => getTenantPropertyContextsByPropertySlug(db, propertySlug));
+
+  if (tenants.length === 0) {
+    notFound();
+  }
+
+  if (tenants.length > 1) {
+    redirect("/select-property");
+  }
+
+  const tenant = tenants[0];
+
+  if (!tenant) {
+    notFound();
+  }
+
+  if (!tenant.organization) {
+    redirect("/select-property");
+  }
+
+  redirect(`/app/${tenant.organization.slug}/${tenant.property.slug}/${section}`);
 }
 
 export async function getCurrentResidentContext() {
@@ -233,4 +277,10 @@ export async function withDbContext<T>(
 
 export function isDevelopmentAuthFallbackAllowed() {
   return (process.env.APP_ENV ?? "development") === "development";
+}
+
+function membershipBasePath(membership: CurrentUserMembership) {
+  return membership.organizationSlug
+    ? `/app/${membership.organizationSlug}/${membership.propertySlug}`
+    : `/app/${membership.propertySlug}`;
 }

@@ -1,4 +1,4 @@
-import { renderTenantRfidSimulator } from "@/lib/tenant-page-renderers";
+import { redirectLegacyAppPropertyRoute } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +8,5 @@ export default async function TenantRfidSimulatorPage({
   params: Promise<{ propertySlug: string }>;
 }) {
   const { propertySlug } = await params;
-  return renderTenantRfidSimulator(propertySlug);
+  await redirectLegacyAppPropertyRoute(propertySlug, "rfid-simulator");
 }

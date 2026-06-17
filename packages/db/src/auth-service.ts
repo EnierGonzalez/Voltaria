@@ -16,6 +16,7 @@ import {
 import {
   apartments,
   appUsers,
+  organizations,
   properties,
   residents,
   userAuditEvents,
@@ -58,6 +59,9 @@ export type CurrentUserMembership = {
   propertyId: string;
   propertyName: string;
   propertySlug: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  organizationSlug: string | null;
   role: AppRole;
   status: "active" | "invited" | "suspended" | "disabled";
   residentId: string | null;
@@ -723,6 +727,9 @@ async function buildCurrentUser(db: VoltariaDb, userId: string): Promise<Current
       propertyId: userPropertyMemberships.propertyId,
       propertyName: properties.name,
       propertySlug: properties.slug,
+      organizationId: organizations.id,
+      organizationName: organizations.name,
+      organizationSlug: organizations.slug,
       role: userPropertyMemberships.role,
       status: userPropertyMemberships.status,
       residentId: userPropertyMemberships.residentId,
@@ -732,6 +739,7 @@ async function buildCurrentUser(db: VoltariaDb, userId: string): Promise<Current
     })
     .from(userPropertyMemberships)
     .innerJoin(properties, eq(properties.id, userPropertyMemberships.propertyId))
+    .leftJoin(organizations, eq(organizations.id, properties.organizationId))
     .leftJoin(residents, eq(residents.id, userPropertyMemberships.residentId))
     .leftJoin(apartments, eq(apartments.id, userPropertyMemberships.apartmentId))
     .where(

@@ -23,8 +23,10 @@ import { normalizeEmail } from "./auth-service";
 
 export type TenantProvisioningResult = {
   organizationId: string;
+  organizationSlug: string;
   propertyId: string;
   propertySlug: string;
+  outletsCreated: number;
   gatewayId?: string;
   gatewayCode?: string;
   gatewayAuthToken?: string;
@@ -163,45 +165,44 @@ export async function createTenant(
       });
     }
 
-    const outletRows = await tx
-      .insert(chargers)
-      .values(
-        Array.from({ length: parsed.outletCount }, (_, index) => {
-          const number = String(index + 1).padStart(2, "0");
-          const code = `${parsed.outletPrefix}-${number}`;
+    const outletValues = Array.from({ length: parsed.outletCount }, (_, index) => {
+      const number = String(index + 1).padStart(2, "0");
+      const code = `${parsed.outletPrefix}-${number}`;
 
-          return {
-            propertyId: property.id,
-            gatewayId: gatewayResult?.gatewayId,
-            kind: "controlled_outlet" as const,
-            ocppIdentity: code,
-            name: `Toma ${number}`,
-            location: `${parsed.outletAreaLabel} ${number}`,
-            vendor: "Voltaria",
-            model: "120V Controlled Outlet",
-            serialNumber: `${propertySlug}-${code}`.toUpperCase(),
-            firmwareVersion: "simulator-ready",
-            status: "available" as const,
-            voltage: parsed.defaultVoltage,
-            maxCurrentAmp: parsed.defaultMaxCurrentAmp.toFixed(2),
-            maxPowerKw: ((parsed.defaultVoltage * parsed.defaultMaxCurrentAmp) / 1000).toFixed(2),
-            publicAccessCode: `${propertySlug}-${code}`.toLowerCase(),
-            controlMode: parsed.gatewayKind === "simulator" ? ("simulated" as const) : ("http" as const)
-          };
-        })
-      )
-      .returning();
-
-    await tx.insert(chargerConnectors).values(
-      outletRows.map((outlet) => ({
+      return {
         propertyId: property.id,
-        chargerId: outlet.id,
-        connectorNumber: 1,
+        gatewayId: gatewayResult?.gatewayId,
+        kind: "controlled_outlet" as const,
+        ocppIdentity: code,
+        name: `Toma ${number}`,
+        location: `${parsed.outletAreaLabel} ${number}`,
+        vendor: "Voltaria",
+        model: "120V Controlled Outlet",
+        serialNumber: `${propertySlug}-${code}`.toUpperCase(),
+        firmwareVersion: "simulator-ready",
         status: "available" as const,
-        maxPowerKw: outlet.maxPowerKw,
-        lastStatusAt: new Date()
-      }))
-    );
+        voltage: parsed.defaultVoltage,
+        maxCurrentAmp: parsed.defaultMaxCurrentAmp.toFixed(2),
+        maxPowerKw: ((parsed.defaultVoltage * parsed.defaultMaxCurrentAmp) / 1000).toFixed(2),
+        publicAccessCode: `${propertySlug}-${code}`.toLowerCase(),
+        controlMode: parsed.gatewayKind === "simulator" ? ("simulated" as const) : ("http" as const)
+      };
+    });
+    const outletRows =
+      outletValues.length > 0 ? await tx.insert(chargers).values(outletValues).returning() : [];
+
+    if (outletRows.length > 0) {
+      await tx.insert(chargerConnectors).values(
+        outletRows.map((outlet) => ({
+          propertyId: property.id,
+          chargerId: outlet.id,
+          connectorNumber: 1,
+          status: "available" as const,
+          maxPowerKw: outlet.maxPowerKw,
+          lastStatusAt: new Date()
+        }))
+      );
+    }
 
     await tx.insert(accessDevices).values({
       propertyId: property.id,
@@ -209,7 +210,7 @@ export async function createTenant(
       name: `Panel RFID ${parsed.propertyName}`,
       kind: "rfid_kiosk",
       locationLabel: parsed.outletAreaLabel,
-      linkedOutletId: outletRows[0]?.id,
+      ...(outletRows[0]?.id ? { linkedOutletId: outletRows[0].id } : {}),
       status: "online",
       lastSeenAt: new Date(),
       metadata: { provisionedBy: "platform_admin" }
@@ -247,8 +248,10 @@ export async function createTenant(
 
     return {
       organizationId: organization.id,
+      organizationSlug: organization.slug,
       propertyId: property.id,
       propertySlug: property.slug,
+      outletsCreated: outletRows.length,
       ...(gatewayResult
         ? {
             gatewayId: gatewayResult.gatewayId,

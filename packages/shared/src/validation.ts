@@ -250,7 +250,7 @@ export const tenantProvisioningSchema = z.object({
     .length(3)
     .default("MXN")
     .transform((value) => value.toUpperCase()),
-  outletCount: z.coerce.number().int().min(1).max(128),
+  outletCount: z.coerce.number().int().min(0).max(128),
   outletPrefix: z
     .string()
     .trim()

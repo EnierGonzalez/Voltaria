@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Building2, ServerCog } from "lucide-react";
 import { SectionCard, StatusBadge } from "@voltaria/ui";
 import { requireUser } from "@/lib/auth";
@@ -8,6 +9,10 @@ export const dynamic = "force-dynamic";
 export default async function SelectPropertyPage() {
   const user = await requireUser("/select-property");
   const memberships = user.memberships.filter((membership) => membership.status === "active");
+
+  if (user.platformRole === "none" && memberships.length === 1 && memberships[0]) {
+    redirect(membershipHref(memberships[0]));
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -41,7 +46,7 @@ export default async function SelectPropertyPage() {
             {memberships.map((membership) => (
               <Link
                 key={membership.id}
-                href={`/app/${membership.propertySlug}/dashboard`}
+                href={membershipHref(membership)}
                 className="min-w-0 rounded-lg border border-border bg-panel2/60 p-4 transition hover:border-primary/60 hover:bg-panel2"
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -50,7 +55,9 @@ export default async function SelectPropertyPage() {
                       <Building2 className="h-4 w-4 text-cyan" aria-hidden="true" />
                       <p className="truncate font-semibold text-foreground">{membership.propertyName}</p>
                     </div>
-                    <p className="mt-1 truncate text-sm text-muted">{membership.propertySlug}</p>
+                    <p className="mt-1 truncate text-sm text-muted">
+                      {membership.organizationName ?? "Sin organización"} · {membership.propertySlug}
+                    </p>
                   </div>
                   <StatusBadge variant="info">{membership.role}</StatusBadge>
                 </div>
@@ -61,4 +68,10 @@ export default async function SelectPropertyPage() {
       </SectionCard>
     </div>
   );
+}
+
+function membershipHref(membership: Awaited<ReturnType<typeof requireUser>>["memberships"][number]) {
+  return membership.organizationSlug
+    ? `/app/${membership.organizationSlug}/${membership.propertySlug}/dashboard`
+    : `/app/${membership.propertySlug}/dashboard`;
 }

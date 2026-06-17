@@ -1,4 +1,4 @@
-import { renderTenantUsersSettings } from "@/lib/tenant-page-renderers";
+import { redirectLegacyAppPropertyRoute } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +8,5 @@ export default async function TenantUsersSettingsPage({
   params: Promise<{ propertySlug: string }>;
 }) {
   const { propertySlug } = await params;
-  return renderTenantUsersSettings(propertySlug);
+  await redirectLegacyAppPropertyRoute(propertySlug, "settings/users");
 }

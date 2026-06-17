@@ -9,6 +9,7 @@ import type {
   PlatformGatewaySummary,
   PlatformTenantDetail,
   PlatformTenantSummary,
+  TenantIsolationDiagnostic,
   TenantProvisioningResult
 } from "@voltaria/db";
 import type { TenantProvisioningInput } from "@voltaria/shared";
@@ -148,12 +149,16 @@ export function PlatformTenants({
                       </Link>
                       {tenant.primaryPropertySlug ? (
                         <Link
-                          href={`/app/${tenant.primaryPropertySlug}/dashboard`}
+                          href={`/app/${tenant.slug}/${tenant.primaryPropertySlug}/dashboard`}
                           className="rounded-md border border-cyan/30 bg-cyan/10 px-2 py-1 text-xs font-semibold text-cyan transition hover:bg-cyan/15"
                         >
                           Abrir tenant
                         </Link>
-                      ) : null}
+                      ) : (
+                        <span className="rounded-md border border-border px-2 py-1 text-xs text-muted">
+                          Sin propiedades
+                        </span>
+                      )}
                       <Link
                         href="/platform/gateways"
                         className="rounded-md border border-border px-2 py-1 text-xs text-muted transition hover:border-cyan/60 hover:text-foreground"
@@ -223,6 +228,10 @@ export function TenantProvisioningForm() {
             {result.tempPassword ? <SecretBlock label="Contraseña temporal" value={result.tempPassword} /> : null}
             {result.gatewayCode ? <SecretBlock label="Gateway code" value={result.gatewayCode} /> : null}
             {result.gatewayAuthToken ? <SecretBlock label="Gateway token" value={result.gatewayAuthToken} /> : null}
+            <SecretBlock
+              label="Tomas creadas"
+              value={result.outletsCreated > 0 ? result.outletsCreated.toString() : "Sin tomas creadas"}
+            />
           </div>
           <pre className="mt-4 max-h-80 overflow-auto rounded-lg border border-border bg-background p-4 text-xs text-muted">
             {configText}
@@ -232,7 +241,7 @@ export function TenantProvisioningForm() {
               Ver tenant
             </Link>
             <Link
-              href={`/app/${result.propertySlug}/dashboard`}
+              href={`/app/${result.organizationSlug}/${result.propertySlug}/dashboard`}
               className="rounded-md border border-cyan/30 bg-cyan/10 px-4 py-2 text-sm font-semibold text-cyan transition hover:bg-cyan/15"
             >
               Abrir panel del tenant
@@ -244,6 +253,12 @@ export function TenantProvisioningForm() {
             >
               Copiar config JSON
             </button>
+            <Link
+              href="/platform/tenants"
+              className="rounded-md border border-border px-4 py-2 text-sm text-muted transition hover:border-cyan/60 hover:text-foreground"
+            >
+              Volver a Tenants
+            </Link>
           </div>
         </SectionCard>
       </div>
@@ -321,9 +336,13 @@ export function PlatformTenantDetailView({
             <div key={property.id} className="rounded-lg border border-border bg-panel2/60 p-4">
               <p className="font-semibold text-foreground">{property.name}</p>
               <p className="mt-1 text-sm text-muted">{property.address || "Sin dirección registrada"}</p>
-              <p className="mt-3 text-xs text-muted">{property.outletsCount} tomas · {property.timezone} · {property.billingCurrency}</p>
+              <p className="mt-3 text-xs text-muted">
+                {property.outletsCount} tomas · {property.sessionsCount} sesiones · {property.usersCount} usuarios ·{" "}
+                {property.gatewaysCount} gateways
+              </p>
+              <p className="mt-1 text-xs text-muted">{property.timezone} · {property.billingCurrency}</p>
               <Link
-                href={`/app/${property.slug}/dashboard`}
+                href={`/app/${detail.slug}/${property.slug}/dashboard`}
                 className="mt-4 inline-flex min-h-9 items-center rounded-md border border-cyan/30 bg-cyan/10 px-3 text-sm font-semibold text-cyan transition hover:bg-cyan/15"
               >
                 Abrir panel del tenant
@@ -334,6 +353,78 @@ export function PlatformTenantDetailView({
       </SectionCard>
 
       <GatewayList gateways={detail.gateways} canManage={canManageGateways} />
+    </div>
+  );
+}
+
+export function PlatformSystemDiagnostics({
+  diagnostics
+}: {
+  diagnostics: TenantIsolationDiagnostic[];
+}) {
+  const warningCount = diagnostics.reduce((total, item) => total + item.warnings.length, 0);
+
+  return (
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-4">
+        <StatCard title="Propiedades" value={diagnostics.length.toString()} delta="con scoping tenant" tone="primary" icon={<Building2 className="h-5 w-5" />} />
+        <StatCard title="Tomas" value={sumDiagnostics(diagnostics, "outletsCount").toString()} delta="controlled_outlet" tone="cyan" icon={<Zap className="h-5 w-5" />} />
+        <StatCard title="Gateways" value={sumDiagnostics(diagnostics, "gatewaysCount").toString()} delta="por propiedad" tone="success" icon={<RadioTower className="h-5 w-5" />} />
+        <StatCard title="Warnings" value={warningCount.toString()} delta="aislamiento SaaS" tone={warningCount > 0 ? "warning" : "success"} icon={<ShieldCheck className="h-5 w-5" />} />
+      </section>
+
+      <SectionCard
+        title="Tenant isolation diagnostics"
+        description="Conteos agrupados por organización/propiedad y advertencias de scoping."
+      >
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full table-fixed text-left text-sm">
+            <thead className="bg-panel2 text-xs uppercase text-muted">
+              <tr>
+                <th className="px-3 py-3">Tenant</th>
+                <th className="hidden px-3 py-3 md:table-cell">Propiedad</th>
+                <th className="px-3 py-3">Tomas</th>
+                <th className="hidden px-3 py-3 lg:table-cell">Sesiones</th>
+                <th className="hidden px-3 py-3 lg:table-cell">Usuarios</th>
+                <th className="hidden px-3 py-3 lg:table-cell">Gateways</th>
+                <th className="px-3 py-3">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {diagnostics.map((item) => (
+                <tr key={item.propertyId ?? `${item.organizationId}-${item.propertySlug}`} className="align-top">
+                  <td className="min-w-0 px-3 py-3">
+                    <span className="block truncate font-medium text-foreground">{item.organizationName}</span>
+                    <span className="block truncate text-xs text-muted">{item.organizationSlug ?? "sin-organizacion"}</span>
+                  </td>
+                  <td className="hidden min-w-0 px-3 py-3 md:table-cell">
+                    <span className="block truncate text-foreground">{item.propertyName}</span>
+                    <span className="block truncate text-xs text-muted">{item.propertySlug ?? "sin-slug"}</span>
+                  </td>
+                  <td className="px-3 py-3 text-foreground">{item.outletsCount}</td>
+                  <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.sessionsCount}</td>
+                  <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.usersCount}</td>
+                  <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.gatewaysCount}</td>
+                  <td className="px-3 py-3">
+                    {item.warnings.length === 0 ? (
+                      <StatusBadge variant="success">OK</StatusBadge>
+                    ) : (
+                      <div className="grid gap-2">
+                        <StatusBadge variant="warning">{item.warnings.length} warning</StatusBadge>
+                        <ul className="grid gap-1 text-xs text-muted">
+                          {item.warnings.map((warning) => (
+                            <li key={warning} className="truncate">{warning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
     </div>
   );
 }
@@ -371,6 +462,13 @@ export function PlatformPlaceholder({
       </div>
     </SectionCard>
   );
+}
+
+function sumDiagnostics(
+  diagnostics: TenantIsolationDiagnostic[],
+  key: "outletsCount" | "sessionsCount" | "gatewaysCount" | "usersCount"
+) {
+  return diagnostics.reduce((total, item) => total + item[key], 0);
 }
 
 function PlatformShortcut({ title, description, href }: { title: string; description: string; href: string }) {

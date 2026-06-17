@@ -27,7 +27,7 @@ Selector de propiedad: `http://localhost:3000/select-property`
 
 Platform Admin: `http://localhost:3000/platform`
 
-Tenant Admin: `http://localhost:3000/app/torre-aurora/dashboard`
+Tenant Admin: `http://localhost:3000/app/voltaria-demo/torre-aurora/dashboard`
 
 PWA móvil: `http://localhost:3000/mobile/home`
 
@@ -78,19 +78,21 @@ Rutas útiles:
 
 - Selector: `http://localhost:3000/select-property`
 - Platform Admin: `http://localhost:3000/platform`
-- Tenant dashboard: `http://localhost:3000/app/torre-aurora/dashboard`
-- Cargadores: `http://localhost:3000/app/torre-aurora/chargers`
-- Tomas 120V: `http://localhost:3000/app/torre-aurora/outlets`
-- Residentes: `http://localhost:3000/app/torre-aurora/residents`
-- Sesiones: `http://localhost:3000/app/torre-aurora/sessions`
+- Tenant dashboard: `http://localhost:3000/app/voltaria-demo/torre-aurora/dashboard`
+- Cargadores: `http://localhost:3000/app/voltaria-demo/torre-aurora/chargers`
+- Tomas 120V: `http://localhost:3000/app/voltaria-demo/torre-aurora/outlets`
+- Residentes: `http://localhost:3000/app/voltaria-demo/torre-aurora/residents`
+- Sesiones: `http://localhost:3000/app/voltaria-demo/torre-aurora/sessions`
 - PWA móvil: `http://localhost:3000/mobile/home`
 - PWA tomas: `http://localhost:3000/mobile/outlets`
 - OCPP server: `ws://localhost:9220/ocpp/{chargerId}`
 
 Las rutas legacy como `/dashboard`, `/outlets`, `/sessions`, `/residents`, `/billing`,
-`/audit`, `/reports` y `/settings` redirigen al tenant activo en `/app/[propertySlug]/...`,
-a `/select-property` si el usuario tiene varias propiedades, o a `/platform` si es un
-usuario platform sin propiedad asignada.
+`/audit`, `/reports` y `/settings` redirigen al tenant activo en
+`/app/[organizationSlug]/[propertySlug]/...`, a `/select-property` si el usuario tiene
+varias propiedades, o a `/platform` si es un usuario platform sin propiedad asignada.
+Las rutas legacy `/app/[propertySlug]/...` siguen existiendo temporalmente y redirigen a
+la URL canónica cuando la propiedad se puede resolver sin ambigüedad.
 
 ## Simulador de tomas 120V
 
@@ -110,11 +112,11 @@ pnpm outlet:simulator
 
 Rutas para probar:
 
-- `http://localhost:3000/app/torre-aurora/outlets`
+- `http://localhost:3000/app/voltaria-demo/torre-aurora/outlets`
 - `http://localhost:3000/mobile/outlets`
 - `http://localhost:3000/mobile/outlets/aur-toma-01`
 - `http://localhost:3000/mobile/charge`
-- `http://localhost:3000/app/torre-aurora/dashboard`
+- `http://localhost:3000/app/voltaria-demo/torre-aurora/dashboard`
 
 Prueba manual:
 
@@ -261,7 +263,8 @@ Platform Admin permite operar Voltaria como SaaS multi-tenant.
 
 Platform Admin y Tenant Admin usan shells separados. Platform no muestra el header,
 footer ni navegación de `Torre Aurora`; opera en scope global SaaS. Tenant Admin vive
-en `/app/[propertySlug]` y siempre carga datos con `property_id` explícito.
+en `/app/[organizationSlug]/[propertySlug]` y siempre carga datos con `property_id`
+explícito desde un contexto que valida organization + property + membership.
 
 Rutas:
 
@@ -270,7 +273,8 @@ Rutas:
 - `/platform/tenants/new`: provisioning de tenant, propiedad, tomas, tarifa, reglas, usuario inicial y gateway lógico.
 - `/platform/tenants/[organizationId]`: detalle operativo del tenant.
 - `/platform/gateways`: inventario global de gateways.
-- `/platform/users`, `/platform/support`, `/platform/system`, `/platform/settings`: placeholders globales para administración SaaS futura.
+- `/platform/system`: diagnostics de aislamiento SaaS con conteos por organization/property y warnings.
+- `/platform/users`, `/platform/support`, `/platform/settings`: placeholders globales para administración SaaS futura.
 
 En `/platform/tenants`, cada fila permite ver detalle, abrir el tenant admin,
 ver gateways y activar/desactivar el tenant si el usuario tiene `platform.tenants.manage`.
@@ -278,18 +282,18 @@ No se implementa hard delete de tenants.
 
 Rutas tenant:
 
-- `/app/[propertySlug]/dashboard`
-- `/app/[propertySlug]/outlets`
-- `/app/[propertySlug]/chargers`
-- `/app/[propertySlug]/sessions`
-- `/app/[propertySlug]/residents`
-- `/app/[propertySlug]/billing`
-- `/app/[propertySlug]/audit`
-- `/app/[propertySlug]/reports`
-- `/app/[propertySlug]/settings`
-- `/app/[propertySlug]/settings/rules`
-- `/app/[propertySlug]/settings/users`
-- `/app/[propertySlug]/rfid-simulator`
+- `/app/[organizationSlug]/[propertySlug]/dashboard`
+- `/app/[organizationSlug]/[propertySlug]/outlets`
+- `/app/[organizationSlug]/[propertySlug]/chargers`
+- `/app/[organizationSlug]/[propertySlug]/sessions`
+- `/app/[organizationSlug]/[propertySlug]/residents`
+- `/app/[organizationSlug]/[propertySlug]/billing`
+- `/app/[organizationSlug]/[propertySlug]/audit`
+- `/app/[organizationSlug]/[propertySlug]/reports`
+- `/app/[organizationSlug]/[propertySlug]/settings`
+- `/app/[organizationSlug]/[propertySlug]/settings/rules`
+- `/app/[organizationSlug]/[propertySlug]/settings/users`
+- `/app/[organizationSlug]/[propertySlug]/rfid-simulator`
 
 Permisos:
 
@@ -303,8 +307,9 @@ Flujo para nuevo tenant:
 2. Abre `/platform/tenants/new`.
 3. Captura cliente, propiedad, número de tomas, tarifa, owner inicial y gateway.
 4. Al crear, copia la contraseña temporal y el token del gateway; solo se muestran una vez.
-5. Usa `Abrir panel del tenant` para entrar a `/app/[newPropertySlug]/dashboard`.
-6. Entrega el JSON de config al worker/gateway correspondiente.
+5. `outletCount` puede ser `0` para crear un tenant vacío; en ese caso no se crean tomas.
+6. Usa `Abrir panel del tenant` para entrar a `/app/[organizationSlug]/[propertySlug]/dashboard`.
+7. Entrega el JSON de config al worker/gateway correspondiente.
 
 El seed crea la organización `Voltaria Demo`, asocia `Torre Aurora`, marca `admin@voltaria.local` como `platform_owner` y provisiona `GW-TORRE-AURORA-SIM`. No imprime tokens ni secretos.
 
@@ -382,7 +387,7 @@ Rutas nuevas:
 - `/change-password`: cambio obligatorio o manual de contraseña.
 - `/403`: acceso denegado.
 - `/select-property`: selector de propiedad cuando el usuario tiene varias membresías.
-- `/app/[propertySlug]/settings/users`: administración tenant de usuarios, roles, estado y contraseñas temporales.
+- `/app/[organizationSlug]/[propertySlug]/settings/users`: administración tenant de usuarios, roles, estado y contraseñas temporales.
 
 Estrategia staging:
 

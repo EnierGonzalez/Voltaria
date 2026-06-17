@@ -133,12 +133,12 @@ Luego validar con Basic Auth:
 
 - `/platform`
 - `/select-property`
-- `/app/torre-aurora/dashboard`
-- `/app/torre-aurora/outlets`
+- `/app/voltaria-demo/torre-aurora/dashboard`
+- `/app/voltaria-demo/torre-aurora/outlets`
 - `/mobile/outlets/aur-toma-01`
 - `/mobile/charge`
-- `/app/torre-aurora/rfid-simulator`
-- `/app/torre-aurora/billing`
-- `/app/torre-aurora/audit`
+- `/app/voltaria-demo/torre-aurora/rfid-simulator`
+- `/app/voltaria-demo/torre-aurora/billing`
+- `/app/voltaria-demo/torre-aurora/audit`
 
 Este deploy es staging/demo protegido, no producción abierta.

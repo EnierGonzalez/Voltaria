@@ -28,14 +28,15 @@ import { requireTenantMembership } from "@/lib/auth";
 
 type ModuleKey = "chargers" | "outlets" | "sessions" | "residents" | "billing" | "consumption" | "alerts" | "reports" | "settings";
 
-export async function renderTenantDashboard(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug, "dashboard.view");
+export async function renderTenantDashboard(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "dashboard.view");
   const data = await getDashboardPageData(context.property.id);
 
   return <AdminDashboard data={data} basePath={context.basePath} />;
 }
 
 export async function renderTenantModule(
+  organizationSlug: string,
   propertySlug: string,
   module: ModuleKey,
   permission:
@@ -47,7 +48,7 @@ export async function renderTenantModule(
     | "dashboard.view"
     | "rules.view"
 ) {
-  const context = await requireTenantMembership(propertySlug, permission);
+  const context = await requireTenantMembership(organizationSlug, propertySlug, permission);
   const data = await getModulePageData(context.property.id);
 
   return (
@@ -60,8 +61,8 @@ export async function renderTenantModule(
   );
 }
 
-export async function renderTenantSettings(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug);
+export async function renderTenantSettings(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug);
 
   const settingsPermissions = ["rules.view", "users.view", "system.health.view"] as const;
 
@@ -81,8 +82,8 @@ export async function renderTenantSettings(propertySlug: string) {
   );
 }
 
-export async function renderTenantBilling(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug, "billing.view");
+export async function renderTenantBilling(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "billing.view");
   const data = await getBillingPageData(context.property.id);
 
   return (
@@ -96,22 +97,22 @@ export async function renderTenantBilling(propertySlug: string) {
   );
 }
 
-export async function renderTenantAudit(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug, "audit.view");
+export async function renderTenantAudit(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "audit.view");
   const data = await getAuditPageData(context.property.id);
 
   return <AuditWorkspace audits={data.audits} basePath={context.basePath} />;
 }
 
-export async function renderTenantRulesSettings(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug, "rules.view");
+export async function renderTenantRulesSettings(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "rules.view");
   const data = await getRulesSettingsPageData(context.property.id);
 
   return <OperationalRulesSettings rule={data.rule} schedules={data.schedules} />;
 }
 
-export async function renderTenantUsersSettings(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug, "users.view");
+export async function renderTenantUsersSettings(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "users.view");
   const data = await getUsersSettingsPageData(context.property.id);
 
   return (
@@ -123,8 +124,8 @@ export async function renderTenantUsersSettings(propertySlug: string) {
   );
 }
 
-export async function renderTenantRfidSimulator(propertySlug: string) {
-  const context = await requireTenantMembership(propertySlug, "rfid_simulator.use");
+export async function renderTenantRfidSimulator(organizationSlug: string, propertySlug: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "rfid_simulator.use");
 
   if (!isDemoToolsEnabled()) {
     notFound();
@@ -135,8 +136,8 @@ export async function renderTenantRfidSimulator(propertySlug: string) {
   return <RfidSimulator accessDevices={data.accessDevices} outlets={data.outlets} />;
 }
 
-export async function renderTenantChargerDetail(propertySlug: string, chargerId: string) {
-  const context = await requireTenantMembership(propertySlug, "outlets.view");
+export async function renderTenantChargerDetail(organizationSlug: string, propertySlug: string, chargerId: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "outlets.view");
   const data = await getChargerDetailPageData(chargerId);
 
   if (!data.charger || data.charger.propertyId !== context.property.id) {
@@ -157,8 +158,8 @@ export async function renderTenantChargerDetail(propertySlug: string, chargerId:
   );
 }
 
-export async function renderTenantSessionDetail(propertySlug: string, sessionId: string) {
-  const context = await requireTenantMembership(propertySlug, "sessions.view");
+export async function renderTenantSessionDetail(organizationSlug: string, propertySlug: string, sessionId: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "sessions.view");
   const data = await getSessionDetailPageData(sessionId);
 
   if (!data.session || data.session.propertyId !== context.property.id) {
@@ -179,8 +180,8 @@ export async function renderTenantSessionDetail(propertySlug: string, sessionId:
   );
 }
 
-export async function renderTenantResidentDetail(propertySlug: string, residentId: string) {
-  const context = await requireTenantMembership(propertySlug, "residents.view");
+export async function renderTenantResidentDetail(organizationSlug: string, propertySlug: string, residentId: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "residents.view");
   const data = await getResidentDetailPageData(residentId);
 
   if (!data.resident || data.resident.propertyId !== context.property.id) {
@@ -200,8 +201,8 @@ export async function renderTenantResidentDetail(propertySlug: string, residentI
   );
 }
 
-export async function renderTenantBillingCycleDetail(propertySlug: string, cycleId: string) {
-  const context = await requireTenantMembership(propertySlug, "billing.view");
+export async function renderTenantBillingCycleDetail(organizationSlug: string, propertySlug: string, cycleId: string) {
+  const context = await requireTenantMembership(organizationSlug, propertySlug, "billing.view");
   const data = await getBillingCycleDetailPageData(cycleId);
 
   if (!data.detail || data.detail.cycle.propertyId !== context.property.id) {

@@ -1,4 +1,4 @@
-import { renderTenantResidentDetail } from "@/lib/tenant-page-renderers";
+import { redirectLegacyAppPropertyRoute } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +8,5 @@ export default async function TenantResidentDetailPage({
   params: Promise<{ propertySlug: string; residentId: string }>;
 }) {
   const { propertySlug, residentId } = await params;
-  return renderTenantResidentDetail(propertySlug, residentId);
+  await redirectLegacyAppPropertyRoute(propertySlug, `residents/${residentId}`);
 }

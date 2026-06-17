@@ -83,13 +83,21 @@ export function TenantShell({
   currentUser: CurrentUser;
 }) {
   const pathname = usePathname();
-  const propertySlug = extractPropertySlug(pathname);
+  const routeContext = extractTenantRouteContext(pathname);
   const selectedMembership =
-    currentUser.memberships.find((membership) => membership.propertySlug === propertySlug) ??
-    currentUser.activeMembership;
-  const selectedSlug = selectedMembership?.propertySlug ?? propertySlug ?? "";
-  const basePath = selectedSlug ? `/app/${selectedSlug}` : "/select-property";
-  const tenantPath = propertySlug ? normalizeTenantPath(pathname, propertySlug) : pathname;
+    routeContext?.propertySlug
+      ? currentUser.memberships.find(
+          (membership) =>
+            membership.propertySlug === routeContext.propertySlug &&
+            membership.organizationSlug === routeContext.organizationSlug
+        ) ?? null
+      : currentUser.activeMembership;
+  const basePath = selectedMembership
+    ? membershipBasePath(selectedMembership)
+    : routeContext
+      ? `/app/${routeContext.organizationSlug}/${routeContext.propertySlug}`
+      : "/select-property";
+  const tenantPath = routeContext ? normalizeTenantPath(pathname, routeContext) : pathname;
   const tenantPermissions = selectedMembership
     ? getPermissionsForRole(selectedMembership.role)
     : currentUser.permissions;
@@ -105,8 +113,11 @@ export function TenantShell({
           : tenantPath.startsWith("/billing/cycles/")
             ? "Detalle de corte"
             : "Voltaria");
-  const propertyName = selectedMembership?.propertyName ?? (propertySlug ? propertySlug : "Selecciona propiedad");
-  const roleLabel = selectedMembership?.role ?? (propertySlug ? "support" : "Sin rol activo");
+  const propertyName =
+    selectedMembership?.propertyName ?? routeContext?.propertySlug ?? "Selecciona propiedad";
+  const organizationName =
+    selectedMembership?.organizationName ?? routeContext?.organizationSlug ?? "Sin organización";
+  const roleLabel = selectedMembership?.role ?? (routeContext ? "support" : "Sin rol activo");
 
   return (
     <AppShell
@@ -131,7 +142,7 @@ export function TenantShell({
       topbar={
         <TopBar
           title={title}
-          subtitle={`${propertyName} · ${currentUser.fullName}`}
+          subtitle={`${organizationName} · ${propertyName} · ${currentUser.fullName}`}
           propertyName={propertyName}
           actions={
             <div className="flex items-center gap-2">
@@ -178,12 +189,46 @@ export function TenantShell({
   );
 }
 
-function extractPropertySlug(pathname: string) {
-  const match = pathname.match(/^\/app\/([^/]+)/);
-  return match?.[1] ?? null;
+function extractTenantRouteContext(pathname: string) {
+  const parts = pathname.split("/").filter(Boolean);
+
+  if (parts[0] !== "app") {
+    return null;
+  }
+
+  const organizationSlug = parts[1];
+  const propertySlug = parts[2];
+
+  if (organizationSlug && propertySlug) {
+    return {
+      organizationSlug,
+      propertySlug
+    };
+  }
+
+  if (organizationSlug) {
+    return {
+      organizationSlug: null,
+      propertySlug: organizationSlug
+    };
+  }
+
+  return null;
 }
 
-function normalizeTenantPath(pathname: string, propertySlug: string) {
-  const stripped = pathname.replace(`/app/${propertySlug}`, "");
+function normalizeTenantPath(
+  pathname: string,
+  context: { organizationSlug: string | null; propertySlug: string }
+) {
+  const basePath = context.organizationSlug
+    ? `/app/${context.organizationSlug}/${context.propertySlug}`
+    : `/app/${context.propertySlug}`;
+  const stripped = pathname.replace(basePath, "");
   return stripped.length > 0 ? stripped : "/dashboard";
+}
+
+function membershipBasePath(membership: CurrentUser["memberships"][number]) {
+  return membership.organizationSlug
+    ? `/app/${membership.organizationSlug}/${membership.propertySlug}`
+    : `/app/${membership.propertySlug}`;
 }
