@@ -24,6 +24,7 @@ import { normalizeEmail } from "./auth-service";
 export type TenantProvisioningResult = {
   organizationId: string;
   propertyId: string;
+  propertySlug: string;
   gatewayId?: string;
   gatewayCode?: string;
   gatewayAuthToken?: string;
@@ -247,6 +248,7 @@ export async function createTenant(
     return {
       organizationId: organization.id,
       propertyId: property.id,
+      propertySlug: property.slug,
       ...(gatewayResult
         ? {
             gatewayId: gatewayResult.gatewayId,

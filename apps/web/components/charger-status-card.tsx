@@ -5,17 +5,19 @@ import { formatPower, type ChargerSummary } from "@voltaria/shared";
 
 export function ChargerStatusCard({
   charger,
-  compact = false
+  compact = false,
+  basePath = ""
 }: {
   charger: ChargerSummary;
   compact?: boolean;
+  basePath?: string;
 }) {
   const faulted = charger.status === "faulted";
   const isOutlet = charger.kind === "controlled_outlet";
 
   return (
     <Link
-      href={`/chargers/${charger.id}`}
+      href={`${basePath}/chargers/${charger.id}`}
       className={cn(
         "group block min-w-0 overflow-hidden rounded-lg border bg-panel2/58 p-4 transition hover:-translate-y-0.5 hover:border-primary/55 hover:bg-panel2",
         faulted ? "border-danger/45 shadow-[0_0_0_1px_rgba(255,91,110,0.12)]" : "border-border",

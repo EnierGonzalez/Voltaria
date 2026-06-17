@@ -1,15 +1,18 @@
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   createDbClient,
   createDbClientIfConfigured,
   getCurrentUserFromSession as dbGetCurrentUserFromSession,
+  getTenantPropertyContextBySlug,
   loadDatabaseEnv,
   SESSION_COOKIE_NAME,
-  type CurrentUser
+  type CurrentUser,
+  type CurrentUserMembership,
+  type TenantPropertyContext
 } from "@voltaria/db";
-import type { AppPermission } from "@voltaria/shared";
+import { getPermissionsForRole, type AppPermission } from "@voltaria/shared";
 
 loadDatabaseEnv();
 
@@ -77,6 +80,108 @@ export async function requireActionPermission(permission: AppPermission) {
   }
 
   return user;
+}
+
+export type TenantContext = TenantPropertyContext & {
+  user: CurrentUser;
+  membership: CurrentUserMembership | null;
+  permissions: AppPermission[];
+  basePath: string;
+  isPlatformSupportMode: boolean;
+};
+
+export async function getTenantContextFromParams(
+  params:
+    | { propertySlug: string }
+    | Promise<{ propertySlug: string }>,
+  permission?: AppPermission
+) {
+  const { propertySlug } = await params;
+  return requireTenantMembership(propertySlug, permission, `/app/${propertySlug}/dashboard`);
+}
+
+export async function requireTenantMembership(
+  propertySlug: string,
+  permission?: AppPermission,
+  next = `/app/${propertySlug}/dashboard`
+): Promise<TenantContext> {
+  const user = await requireUser(next);
+  const tenant = await withDbContext(({ db }) => getTenantPropertyContextBySlug(db, propertySlug));
+
+  if (!tenant) {
+    notFound();
+  }
+
+  const membership =
+    user.memberships.find((item) => item.propertyId === tenant.property.id) ?? null;
+  const canSupportTenant =
+    !membership &&
+    user.permissions.includes("platform.impersonate_property") &&
+    user.permissions.includes("platform.tenants.view");
+
+  if (!membership && !canSupportTenant) {
+    redirect("/403");
+  }
+
+  const permissions = membership ? getPermissionsForRole(membership.role) : user.permissions;
+
+  if (permission && !permissions.includes(permission)) {
+    redirect("/403");
+  }
+
+  return {
+    ...tenant,
+    user,
+    membership,
+    permissions,
+    basePath: `/app/${tenant.property.slug}`,
+    isPlatformSupportMode: canSupportTenant
+  };
+}
+
+export function getDefaultAuthenticatedPath(user: CurrentUser) {
+  const activeMemberships = user.memberships.filter((membership) => membership.status === "active");
+
+  if (user.userType === "resident" && activeMemberships.some((membership) => membership.residentId)) {
+    return "/mobile/home";
+  }
+
+  if (user.platformRole !== "none" && user.permissions.includes("platform.tenants.view")) {
+    return "/platform";
+  }
+
+  const onlyMembership = activeMemberships[0];
+
+  if (onlyMembership && activeMemberships.length === 1) {
+    return `/app/${onlyMembership.propertySlug}/dashboard`;
+  }
+
+  if (activeMemberships.length > 1) {
+    return "/select-property";
+  }
+
+  return "/403";
+}
+
+export async function redirectLegacyTenantRoute(section: string) {
+  const user = await requireUser(`/${section}`);
+  const activeMemberships = user.memberships.filter((membership) => membership.status === "active");
+
+  const onlyMembership = activeMemberships[0];
+
+  if (onlyMembership && activeMemberships.length === 1) {
+    redirect(`/app/${onlyMembership.propertySlug}/${section}`);
+  }
+
+  if (activeMemberships.length > 1) {
+    redirect("/select-property");
+  }
+
+  if (user.platformRole !== "none" && user.permissions.includes("platform.tenants.view")) {
+    redirect("/platform");
+  }
+
+  redirect("/403");
 }
 
 export async function getCurrentResidentContext() {

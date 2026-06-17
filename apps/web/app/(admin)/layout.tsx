@@ -7,7 +7,7 @@ export default async function AdminLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const user = await requireUser("/dashboard");
+  const user = await requireUser("/select-property");
 
   if (
     !user.permissions.includes("dashboard.view") &&

@@ -12,7 +12,7 @@ export default function ForbiddenPage() {
           Tu usuario no tiene permisos para abrir esta sección o ejecutar esta acción.
         </p>
         <Link
-          href="/dashboard"
+          href="/select-property"
           className="mt-6 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90"
         >
           Volver al dashboard

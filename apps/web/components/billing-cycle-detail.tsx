@@ -20,7 +20,13 @@ import {
 } from "@/lib/actions/billing-cycle-actions";
 import { EmptyState } from "./empty-state";
 
-export function BillingCycleDetail({ detail }: { detail: BillingCycleDetailData }) {
+export function BillingCycleDetail({
+  detail,
+  basePath = ""
+}: {
+  detail: BillingCycleDetailData;
+  basePath?: string;
+}) {
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const { cycle, items, sessions } = detail;
@@ -141,7 +147,7 @@ export function BillingCycleDetail({ detail }: { detail: BillingCycleDetailData 
             >
               <div className="min-w-0">
                 <Link
-                  href={`/sessions/${session.sessionId}`}
+                  href={`${basePath}/sessions/${session.sessionId}`}
                   className="truncate font-medium text-foreground hover:text-cyan"
                 >
                   {session.outletCode} · {session.residentName}

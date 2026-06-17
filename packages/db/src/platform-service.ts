@@ -30,6 +30,7 @@ export type PlatformTenantSummary = {
   status: string;
   contactName: string | null;
   contactEmail: string | null;
+  primaryPropertySlug: string | null;
   propertiesCount: number;
   gatewaysCount: number;
   outletsCount: number;
@@ -65,6 +66,74 @@ export type PlatformTenantDetail = PlatformTenantSummary & {
   usersCount: number;
   activeTariffsCount: number;
 };
+
+export type TenantPropertyContext = {
+  property: {
+    id: string;
+    name: string;
+    slug: string;
+    address: string | null;
+    timezone: string;
+    billingCurrency: string;
+    organizationId: string | null;
+  };
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    plan: string;
+  } | null;
+};
+
+export async function getTenantPropertyContextBySlug(
+  db: VoltariaDb,
+  propertySlug: string
+): Promise<TenantPropertyContext | null> {
+  const [row] = await db
+    .select({
+      propertyId: properties.id,
+      propertyName: properties.name,
+      propertySlug: properties.slug,
+      propertyAddress: properties.address,
+      propertyTimezone: properties.timezone,
+      propertyBillingCurrency: properties.billingCurrency,
+      organizationId: properties.organizationId,
+      organizationName: organizations.name,
+      organizationSlug: organizations.slug,
+      organizationStatus: organizations.status,
+      organizationPlan: organizations.plan
+    })
+    .from(properties)
+    .leftJoin(organizations, eq(organizations.id, properties.organizationId))
+    .where(eq(properties.slug, propertySlug))
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    property: {
+      id: row.propertyId,
+      name: row.propertyName,
+      slug: row.propertySlug,
+      address: row.propertyAddress,
+      timezone: row.propertyTimezone,
+      billingCurrency: row.propertyBillingCurrency,
+      organizationId: row.organizationId
+    },
+    organization: row.organizationId
+      ? {
+          id: row.organizationId,
+          name: row.organizationName ?? "Sin organización",
+          slug: row.organizationSlug ?? "sin-organizacion",
+          status: row.organizationStatus ?? "active",
+          plan: row.organizationPlan ?? "demo"
+        }
+      : null
+  };
+}
 
 export async function getPlatformDashboardSummary(
   db: VoltariaDb
@@ -118,6 +187,7 @@ export async function getPlatformTenants(db: VoltariaDb): Promise<PlatformTenant
       contactName: organizations.contactName,
       contactEmail: organizations.contactEmail,
       createdAt: organizations.createdAt,
+      primaryPropertySlug: sql<string | null>`min(${properties.slug})`,
       propertiesCount: sql<number>`count(distinct ${properties.id})::int`,
       gatewaysCount: sql<number>`count(distinct ${gatewayDevices.id})::int`,
       outletsCount: sql<number>`count(distinct ${chargers.id}) filter (where ${chargers.kind} = 'controlled_outlet')::int`
@@ -133,6 +203,28 @@ export async function getPlatformTenants(db: VoltariaDb): Promise<PlatformTenant
     ...row,
     createdAt: row.createdAt.toISOString()
   }));
+}
+
+export async function updatePlatformTenantStatus(
+  db: VoltariaDb,
+  organizationId: string,
+  status: "active" | "trial" | "suspended" | "disabled"
+) {
+  const [organization] = await db
+    .update(organizations)
+    .set({
+      status,
+      disabledAt: status === "disabled" ? new Date() : null,
+      updatedAt: new Date()
+    })
+    .where(eq(organizations.id, organizationId))
+    .returning();
+
+  if (!organization) {
+    throw new Error("Tenant no encontrado.");
+  }
+
+  return organization;
 }
 
 export async function getPlatformTenantDetail(

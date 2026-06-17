@@ -39,7 +39,13 @@ const billingFilters: Array<{ value: BillingFilter; label: string }> = [
   { value: "not_billable", label: "No cobrable" }
 ];
 
-export function AuditWorkspace({ audits }: { audits: SessionAuditSummary[] }) {
+export function AuditWorkspace({
+  audits,
+  basePath = ""
+}: {
+  audits: SessionAuditSummary[];
+  basePath?: string;
+}) {
   const [auditFilter, setAuditFilter] = useState<AuditFilter>("all");
   const [billingFilter, setBillingFilter] = useState<BillingFilter>("all");
   const [selectedId, setSelectedId] = useState(audits[0]?.id ?? "");
@@ -145,7 +151,7 @@ export function AuditWorkspace({ audits }: { audits: SessionAuditSummary[] }) {
                       <td className="px-3 py-3 text-muted">{formatDateTime(audit.sessionStartedAt)}</td>
                       <td className="min-w-0 px-3 py-3">
                         <Link
-                          href={`/sessions/${audit.sessionId}`}
+                          href={`${basePath}/sessions/${audit.sessionId}`}
                           className="block truncate font-medium text-foreground hover:text-cyan"
                         >
                           {audit.outletCode}

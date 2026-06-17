@@ -15,6 +15,7 @@ import { changePasswordSchema, loginSchema } from "@voltaria/shared";
 import {
   getActionRequestMeta,
   getCurrentUser,
+  getDefaultAuthenticatedPath,
   getSessionCookieValue,
   withDbContext
 } from "@/lib/auth";
@@ -110,16 +111,13 @@ export async function changePasswordAction(formData: FormData) {
 
 function resolvePostLoginPath(
   path: string | undefined,
-  user: { permissions: string[] }
+  user: Parameters<typeof getDefaultAuthenticatedPath>[0]
 ) {
   const sanitized = sanitizeNextPath(path);
+  const defaultPath = getDefaultAuthenticatedPath(user);
 
-  if (
-    sanitized === "/dashboard" &&
-    !user.permissions.includes("dashboard.view") &&
-    user.permissions.includes("platform.tenants.view")
-  ) {
-    return "/platform";
+  if (sanitized === "/dashboard") {
+    return defaultPath;
   }
 
   return sanitized;

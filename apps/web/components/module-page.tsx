@@ -125,7 +125,17 @@ const moduleCopy: Record<ModuleKey, { title: string; description: string }> = {
   }
 };
 
-export function ModulePage({ module, data = defaultData }: { module: ModuleKey; data?: ModulePageData }) {
+export function ModulePage({
+  module,
+  data = defaultData,
+  basePath = "",
+  propertyName = "Propiedad activa"
+}: {
+  module: ModuleKey;
+  data?: ModulePageData;
+  basePath?: string;
+  propertyName?: string;
+}) {
   const copy = moduleCopy[module];
 
   return (
@@ -140,7 +150,7 @@ export function ModulePage({ module, data = defaultData }: { module: ModuleKey; 
         />
         <StatCard
           title="Property scope"
-          value="Torre Aurora"
+          value={propertyName}
           delta="Todos los datos filtran por property_id"
           tone="cyan"
           icon={<Building2 className="h-5 w-5" aria-hidden="true" />}
@@ -154,7 +164,7 @@ export function ModulePage({ module, data = defaultData }: { module: ModuleKey; 
         />
       </section>
 
-      {renderModule(module, data)}
+      {renderModule(module, data, basePath)}
     </div>
   );
 }
@@ -206,42 +216,42 @@ function moduleIcon(module: ModuleKey) {
   }
 }
 
-function renderModule(module: ModuleKey, data: ModulePageData) {
+function renderModule(module: ModuleKey, data: ModulePageData, basePath: string) {
   switch (module) {
     case "chargers":
-      return <ChargersModule chargers={data.chargers} />;
+      return <ChargersModule chargers={data.chargers} basePath={basePath} />;
     case "outlets":
-      return <OutletsModule outlets={data.outlets} />;
+      return <OutletsModule outlets={data.outlets} basePath={basePath} />;
     case "sessions":
-      return <SessionsModule sessions={data.sessions} />;
+      return <SessionsModule sessions={data.sessions} basePath={basePath} />;
     case "residents":
-      return <ResidentsModule residents={data.residents} />;
+      return <ResidentsModule residents={data.residents} basePath={basePath} />;
     case "billing":
       return <BillingModule billingRecords={data.billingRecords} />;
     case "consumption":
       return <ConsumptionModule data={data} />;
     case "alerts":
-      return <AlertsModule alerts={data.alerts} />;
+      return <AlertsModule alerts={data.alerts} basePath={basePath} />;
     case "reports":
       return <ReportsModule />;
     case "settings":
-      return <SettingsModule />;
+      return <SettingsModule basePath={basePath} />;
   }
 }
 
-function ChargersModule({ chargers }: { chargers: ChargerSummary[] }) {
+function ChargersModule({ chargers, basePath }: { chargers: ChargerSummary[]; basePath: string }) {
   return (
     <SectionCard title="Inventario de puntos de carga" description="Tomas 120V y compatibilidad OCPP">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {chargers.map((charger) => (
-          <ChargerStatusCard key={charger.id} charger={charger} />
+          <ChargerStatusCard key={charger.id} charger={charger} basePath={basePath} />
         ))}
       </div>
     </SectionCard>
   );
 }
 
-function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
+function OutletsModule({ outlets, basePath }: { outlets: ControlledOutletSummary[]; basePath: string }) {
   return (
     <SectionCard title="Tomas controladas 120V" description="16 canales simulados listos para hardware futuro">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -250,7 +260,7 @@ function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
             key={outlet.id}
             className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel2/64 p-4 transition hover:border-cyan/50 hover:bg-panel2"
           >
-            <a href={`/chargers/${outlet.id}`} className="block min-w-0">
+            <a href={`${basePath}/chargers/${outlet.id}`} className="block min-w-0">
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-foreground">{outlet.name}</p>
@@ -267,7 +277,7 @@ function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
                 <MiniStat label="Límite" value={`${outlet.appliedMaxCurrentAmp ?? outlet.maxCurrentAmp} A`} />
               </div>
             </a>
-            <OutletAdminActions outlet={outlet} />
+            <OutletAdminActions outlet={outlet} basePath={basePath} />
           </div>
         ))}
       </div>
@@ -275,7 +285,7 @@ function OutletsModule({ outlets }: { outlets: ControlledOutletSummary[] }) {
   );
 }
 
-function OutletAdminActions({ outlet }: { outlet: ControlledOutletSummary }) {
+function OutletAdminActions({ outlet, basePath }: { outlet: ControlledOutletSummary; basePath: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -303,7 +313,7 @@ function OutletAdminActions({ outlet }: { outlet: ControlledOutletSummary }) {
     <div className="mt-4 space-y-2">
       <div className="flex flex-wrap gap-2">
         <a
-          href={`/chargers/${outlet.id}`}
+          href={`${basePath}/chargers/${outlet.id}`}
           className="rounded-md border border-cyan/30 bg-cyan/10 px-2 py-1 text-xs font-semibold text-cyan transition hover:bg-cyan/20"
         >
           Ver detalle
@@ -362,21 +372,21 @@ function OutletAdminActions({ outlet }: { outlet: ControlledOutletSummary }) {
   );
 }
 
-function SessionsModule({ sessions }: { sessions: ChargingSessionSummary[] }) {
+function SessionsModule({ sessions, basePath }: { sessions: ChargingSessionSummary[]; basePath: string }) {
   return (
     <SectionCard title="Sesiones" description="Sin datos de batería del vehículo">
-      <SessionTable sessions={sessions} />
+      <SessionTable sessions={sessions} basePath={basePath} />
     </SectionCard>
   );
 }
 
-function ResidentsModule({ residents }: { residents: ResidentSummary[] }) {
+function ResidentsModule({ residents, basePath }: { residents: ResidentSummary[]; basePath: string }) {
   return (
     <SectionCard title="Residentes" description="Acceso y asociación a departamentos">
       <DataTable
         headers={["Nombre", "Departamento", "Email", "Acceso", "Sesiones", "Consumo mensual"]}
         rows={residents.map((resident) => [
-          <a key={resident.id} href={`/residents/${resident.id}`} className="font-semibold text-foreground transition hover:text-cyan">
+          <a key={resident.id} href={`${basePath}/residents/${resident.id}`} className="font-semibold text-foreground transition hover:text-cyan">
             {resident.name}
           </a>,
           resident.apartmentNumber,
@@ -427,7 +437,7 @@ function ConsumptionModule({ data }: { data: ModulePageData }) {
   );
 }
 
-function AlertsModule({ alerts }: { alerts: AlertSummary[] }) {
+function AlertsModule({ alerts, basePath }: { alerts: AlertSummary[]; basePath: string }) {
   const [attendedAlerts, setAttendedAlerts] = useState<Set<string>>(new Set());
 
   return (
@@ -438,6 +448,7 @@ function AlertsModule({ alerts }: { alerts: AlertSummary[] }) {
             key={alert.id}
             alert={alert}
             attended={attendedAlerts.has(alert.id)}
+            basePath={basePath}
             onAttend={(id) =>
               setAttendedAlerts((current) => {
                 const next = new Set(current);
@@ -479,7 +490,7 @@ function ReportsModule() {
   );
 }
 
-function SettingsModule() {
+function SettingsModule({ basePath }: { basePath: string }) {
   return (
     <SectionCard title="Settings" description="Base preparada para proveedor de auth y migración">
       <div className="grid gap-4 md:grid-cols-2">
@@ -487,13 +498,13 @@ function SettingsModule() {
         <SettingItem icon={<Gauge className="h-5 w-5" aria-hidden="true" />} title="OCPP" value="Servidor separado y mensajes raw auditables" />
         <SettingItem icon={<CreditCard className="h-5 w-5" aria-hidden="true" />} title="Tarifas" value="Modelo por propiedad, vigencia y moneda" />
         <SettingItem icon={<CalendarDays className="h-5 w-5" aria-hidden="true" />} title="Migración futura" value="Auth y DB sin acoplarse a Supabase" />
-        <a href="/settings/rules">
+        <a href={`${basePath}/settings/rules`}>
           <SettingItem icon={<Gauge className="h-5 w-5" aria-hidden="true" />} title="Reglas operativas" value="Métodos, límites, horarios y overrides" />
         </a>
-        <a href="/settings/users">
+        <a href={`${basePath}/settings/users`}>
           <SettingItem icon={<UserRound className="h-5 w-5" aria-hidden="true" />} title="Usuarios y roles" value="Acceso interno, permisos y sesiones seguras" />
         </a>
-        <a href="/rfid-simulator">
+        <a href={`${basePath}/rfid-simulator`}>
           <SettingItem icon={<Zap className="h-5 w-5" aria-hidden="true" />} title="RFID Simulator" value="Herramienta dev para taps RFID simulados" />
         </a>
       </div>

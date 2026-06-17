@@ -221,66 +221,66 @@ const mockAccessDevices: AccessDeviceSummary[] = [
   }
 ];
 
-export async function getDashboardPageData(): Promise<DashboardPageData> {
+export async function getDashboardPageData(propertyId?: string): Promise<DashboardPageData> {
   return withDatabaseFallback(mockDashboardData, async ({ db }) => {
-    const property = await getDefaultProperty(db);
+    const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-    if (!property) {
+    if (!resolvedPropertyId) {
       return mockDashboardData;
     }
 
     return {
-      dashboardStats: await getDashboardSummary(db, property.id),
-      chargers: await getChargers(db, property.id),
-      sessions: await getRecentSessions(db, property.id, 20),
-      alerts: await getAlerts(db, property.id),
-      consumptionSeries: await safeSeries(db, property.id, "day", consumptionSeries),
-      weeklyConsumptionSeries: await safeSeries(db, property.id, "week", weeklyConsumptionSeries),
-      monthlyConsumptionSeries: await safeSeries(db, property.id, "month", monthlyConsumptionSeries)
+      dashboardStats: await getDashboardSummary(db, resolvedPropertyId),
+      chargers: await getChargers(db, resolvedPropertyId),
+      sessions: await getRecentSessions(db, resolvedPropertyId, 20),
+      alerts: await getAlerts(db, resolvedPropertyId),
+      consumptionSeries: await safeSeries(db, resolvedPropertyId, "day", consumptionSeries),
+      weeklyConsumptionSeries: await safeSeries(db, resolvedPropertyId, "week", weeklyConsumptionSeries),
+      monthlyConsumptionSeries: await safeSeries(db, resolvedPropertyId, "month", monthlyConsumptionSeries)
     };
   });
 }
 
-export async function getModulePageData(): Promise<ModulePageData> {
+export async function getModulePageData(propertyId?: string): Promise<ModulePageData> {
   return withDatabaseFallback(mockModuleData, async ({ db }) => {
-    const property = await getDefaultProperty(db);
+    const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-    if (!property) {
+    if (!resolvedPropertyId) {
       return mockModuleData;
     }
 
-    const billingSummary = await getBillingRecords(db, property.id);
+    const billingSummary = await getBillingRecords(db, resolvedPropertyId);
 
     return {
-      chargers: await getChargers(db, property.id),
-      outlets: await getControlledOutlets(db, property.id),
-      sessions: await getRecentSessions(db, property.id, 50),
-      residents: await getResidents(db, property.id),
+      chargers: await getChargers(db, resolvedPropertyId),
+      outlets: await getControlledOutlets(db, resolvedPropertyId),
+      sessions: await getRecentSessions(db, resolvedPropertyId, 50),
+      residents: await getResidents(db, resolvedPropertyId),
       billingRecords: billingSummary,
-      alerts: await getAlerts(db, property.id),
-      tariffs: await getTariffs(db, property.id),
-      consumptionSeries: await safeSeries(db, property.id, "day", consumptionSeries),
-      weeklyConsumptionSeries: await safeSeries(db, property.id, "week", weeklyConsumptionSeries),
-      monthlyConsumptionSeries: await safeSeries(db, property.id, "month", monthlyConsumptionSeries)
+      alerts: await getAlerts(db, resolvedPropertyId),
+      tariffs: await getTariffs(db, resolvedPropertyId),
+      consumptionSeries: await safeSeries(db, resolvedPropertyId, "day", consumptionSeries),
+      weeklyConsumptionSeries: await safeSeries(db, resolvedPropertyId, "week", weeklyConsumptionSeries),
+      monthlyConsumptionSeries: await safeSeries(db, resolvedPropertyId, "month", monthlyConsumptionSeries)
     };
   });
 }
 
-export async function getOutletsPageData(): Promise<OutletsPageData> {
+export async function getOutletsPageData(propertyId?: string): Promise<OutletsPageData> {
   return withDatabaseFallback(mockOutletsData, async ({ db }) => {
-    const property = await getDefaultProperty(db);
+    const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-    if (!property) {
+    if (!resolvedPropertyId) {
       return mockOutletsData;
     }
 
-    const outlets = await getControlledOutlets(db, property.id);
+    const outlets = await getControlledOutlets(db, resolvedPropertyId);
 
     return {
       outlets: outlets.length > 0 ? outlets : towerOutlets,
-      sessions: await getRecentSessions(db, property.id, 50),
-      residents: await getResidents(db, property.id),
-      tariffs: await getTariffs(db, property.id)
+      sessions: await getRecentSessions(db, resolvedPropertyId, 50),
+      residents: await getResidents(db, resolvedPropertyId),
+      tariffs: await getTariffs(db, resolvedPropertyId)
     };
   });
 }
@@ -468,16 +468,16 @@ export async function getResidentDetailPageData(residentId: string): Promise<Res
   );
 }
 
-export async function getRfidSimulatorPageData(): Promise<RfidSimulatorPageData> {
+export async function getRfidSimulatorPageData(propertyId?: string): Promise<RfidSimulatorPageData> {
   return withDatabaseFallback<RfidSimulatorPageData>(
     {
       accessDevices: mockAccessDevices,
       outlets: towerOutlets
     },
     async ({ db }) => {
-      const property = await getDefaultProperty(db);
+      const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-      if (!property) {
+      if (!resolvedPropertyId) {
         return {
           accessDevices: mockAccessDevices,
           outlets: towerOutlets
@@ -485,14 +485,14 @@ export async function getRfidSimulatorPageData(): Promise<RfidSimulatorPageData>
       }
 
       return {
-        accessDevices: await getAccessDeviceSummaries(db, property.id),
-        outlets: await getControlledOutlets(db, property.id)
+        accessDevices: await getAccessDeviceSummaries(db, resolvedPropertyId),
+        outlets: await getControlledOutlets(db, resolvedPropertyId)
       };
     }
   );
 }
 
-export async function getRulesSettingsPageData(): Promise<RulesSettingsPageData> {
+export async function getRulesSettingsPageData(propertyId?: string): Promise<RulesSettingsPageData> {
   return withDatabaseFallback<RulesSettingsPageData>(
     {
       rule: {
@@ -524,47 +524,47 @@ export async function getRulesSettingsPageData(): Promise<RulesSettingsPageData>
       }))
     },
     async ({ db }) => {
-      const property = await getDefaultProperty(db);
+      const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-      if (!property) {
+      if (!resolvedPropertyId) {
         return { rule: null, schedules: [] };
       }
 
-      const rule = await getPropertyAccessRuleSummary(db, property.id);
+      const rule = await getPropertyAccessRuleSummary(db, resolvedPropertyId);
 
       return {
         rule,
-        schedules: rule ? await getAccessScheduleWindowSummaries(db, property.id, rule.id) : []
+        schedules: rule ? await getAccessScheduleWindowSummaries(db, resolvedPropertyId, rule.id) : []
       };
     }
   );
 }
 
-export async function getAuditPageData(): Promise<AuditPageData> {
+export async function getAuditPageData(propertyId?: string): Promise<AuditPageData> {
   return withDatabaseFallback<AuditPageData>(
     {
       audits: [],
       sessions: recentSessions
     },
     async ({ db }) => {
-      const property = await getDefaultProperty(db);
+      const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-      if (!property) {
+      if (!resolvedPropertyId) {
         return { audits: [], sessions: recentSessions };
       }
 
       const { start, end } = currentMonthRange();
-      await auditSessionsForPeriod(db, property.id, start, end);
+      await auditSessionsForPeriod(db, resolvedPropertyId, start, end);
 
       return {
-        audits: await getSessionAuditSummaries(db, property.id, 200),
-        sessions: await getRecentSessions(db, property.id, 200)
+        audits: await getSessionAuditSummaries(db, resolvedPropertyId, 200),
+        sessions: await getRecentSessions(db, resolvedPropertyId, 200)
       };
     }
   );
 }
 
-export async function getBillingPageData(): Promise<BillingPageData> {
+export async function getBillingPageData(propertyId?: string): Promise<BillingPageData> {
   return withDatabaseFallback<BillingPageData>(
     {
       cycles: [],
@@ -572,19 +572,19 @@ export async function getBillingPageData(): Promise<BillingPageData> {
       sessions: recentSessions
     },
     async ({ db }) => {
-      const property = await getDefaultProperty(db);
+      const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-      if (!property) {
+      if (!resolvedPropertyId) {
         return { cycles: [], audits: [], sessions: recentSessions };
       }
 
       const { start, end } = currentMonthRange();
-      await auditSessionsForPeriod(db, property.id, start, end);
+      await auditSessionsForPeriod(db, resolvedPropertyId, start, end);
 
       return {
-        cycles: await getBillingCycleSummaries(db, property.id),
-        audits: await getSessionAuditSummaries(db, property.id, 100),
-        sessions: await getRecentSessions(db, property.id, 100)
+        cycles: await getBillingCycleSummaries(db, resolvedPropertyId),
+        audits: await getSessionAuditSummaries(db, resolvedPropertyId, 100),
+        sessions: await getRecentSessions(db, resolvedPropertyId, 100)
       };
     }
   );
@@ -598,7 +598,7 @@ export async function getBillingCycleDetailPageData(
   }));
 }
 
-export async function getUsersSettingsPageData(): Promise<UsersSettingsPageData> {
+export async function getUsersSettingsPageData(propertyId?: string): Promise<UsersSettingsPageData> {
   return withDatabaseFallback<UsersSettingsPageData>(
     {
       users: [],
@@ -606,16 +606,16 @@ export async function getUsersSettingsPageData(): Promise<UsersSettingsPageData>
       propertyId: null
     },
     async ({ db }) => {
-      const property = await getDefaultProperty(db);
+      const resolvedPropertyId = await resolvePropertyId(db, propertyId);
 
-      if (!property) {
+      if (!resolvedPropertyId) {
         return { users: [], residents, propertyId: null };
       }
 
       return {
-        users: await listAppUsers(db, property.id),
-        residents: await getResidents(db, property.id),
-        propertyId: property.id
+        users: await listAppUsers(db, resolvedPropertyId),
+        residents: await getResidents(db, resolvedPropertyId),
+        propertyId: resolvedPropertyId
       };
     }
   );
@@ -703,6 +703,18 @@ async function withDatabaseFallback<T>(
   } finally {
     await context.client.end();
   }
+}
+
+async function resolvePropertyId(
+  db: Parameters<typeof getDefaultProperty>[0],
+  propertyId?: string
+) {
+  if (propertyId) {
+    return propertyId;
+  }
+
+  const property = await getDefaultProperty(db);
+  return property?.id ?? null;
 }
 
 async function safeSeries(

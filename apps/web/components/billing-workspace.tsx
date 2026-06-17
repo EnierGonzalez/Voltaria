@@ -19,11 +19,15 @@ import { EmptyState } from "./empty-state";
 export function BillingWorkspace({
   cycles,
   audits,
-  sessions
+  sessions,
+  basePath = "",
+  propertyId
 }: {
   cycles: BillingCycleSummary[];
   audits: SessionAuditSummary[];
   sessions: ChargingSessionSummary[];
+  basePath?: string;
+  propertyId?: string;
 }) {
   const router = useRouter();
   const [periodStart, setPeriodStart] = useState(defaultMonthStart());
@@ -107,7 +111,7 @@ export function BillingWorkspace({
               Sesiones CSV
             </Link>
             <Link
-              href="/audit"
+              href={`${basePath}/audit`}
               className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-panel2 px-3 text-sm text-muted transition hover:border-primary/60 hover:text-foreground"
             >
               Auditoría
@@ -126,7 +130,7 @@ export function BillingWorkspace({
             {cycles.map((cycle) => (
               <Link
                 key={cycle.id}
-                href={`/billing/cycles/${cycle.id}`}
+                href={`${basePath}/billing/cycles/${cycle.id}`}
                 className="grid min-w-0 gap-3 rounded-lg border border-border bg-panel2/58 p-4 transition hover:border-primary/60 md:grid-cols-[minmax(0,1fr)_110px_130px_110px_auto]"
               >
                 <div className="min-w-0">
@@ -150,10 +154,14 @@ export function BillingWorkspace({
   function createCycle() {
     setMessage(null);
     startTransition(async () => {
-      const result = await createBillingCycleDraftAction({ periodStart, periodEnd });
+      const result = await createBillingCycleDraftAction({
+        periodStart,
+        periodEnd,
+        ...(propertyId ? { propertyId } : {})
+      });
 
       if (result.ok && result.cycleId) {
-        router.push(`/billing/cycles/${result.cycleId}`);
+        router.push(`${basePath}/billing/cycles/${result.cycleId}`);
         return;
       }
 

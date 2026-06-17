@@ -26,10 +26,12 @@ const filterLabels: Record<FilterKey, string> = {
 
 export function SessionTable({
   sessions,
-  initialFilter
+  initialFilter,
+  basePath = ""
 }: {
   sessions: ChargingSessionSummary[];
   initialFilter?: FilterKey | undefined;
+  basePath?: string;
 }) {
   const [filter, setFilter] = useState<FilterKey>(initialFilter ?? "all");
   const [sortKey, setSortKey] = useState<SortKey>("deliveredKwh");
@@ -118,7 +120,7 @@ export function SessionTable({
               {filtered.map((session) => (
                 <tr key={session.id} className="transition hover:bg-panel2/70">
                   <td className="px-4 py-3">
-                    <Link href={`/sessions/${session.id}`} className="block min-w-0 truncate text-foreground">
+                    <Link href={`${basePath}/sessions/${session.id}`} className="block min-w-0 truncate text-foreground">
                       {session.residentName}
                     </Link>
                   </td>

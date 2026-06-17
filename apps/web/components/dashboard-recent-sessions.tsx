@@ -22,9 +22,11 @@ const filterLabels: Record<FilterKey, string> = {
 };
 
 export function DashboardRecentSessions({
-  sessions
+  sessions,
+  basePath = ""
 }: {
   sessions: ChargingSessionSummary[];
+  basePath?: string;
 }) {
   const [filter, setFilter] = useState<FilterKey>("all");
 
@@ -61,7 +63,7 @@ export function DashboardRecentSessions({
           </button>
         ))}
         <Link
-          href="/sessions"
+          href={`${basePath}/sessions`}
           className="ml-auto min-h-8 rounded-md border border-border bg-panel2 px-2.5 py-1.5 text-xs font-medium text-cyan transition hover:border-primary/50 hover:text-foreground"
         >
           Ver todas
@@ -87,7 +89,7 @@ export function DashboardRecentSessions({
               {filtered.map((session) => (
                 <Link
                   key={session.id}
-                  href={`/sessions/${session.id}`}
+                  href={`${basePath}/sessions/${session.id}`}
                   className="grid min-w-0 grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_96px_112px] items-center gap-0 px-3 py-3 text-sm transition hover:bg-panel2/72"
                 >
                   <div className="min-w-0 pr-3">
@@ -111,7 +113,7 @@ export function DashboardRecentSessions({
             {filtered.map((session) => (
               <Link
                 key={session.id}
-                href={`/sessions/${session.id}`}
+                href={`${basePath}/sessions/${session.id}`}
                 className="block min-w-0 overflow-hidden rounded-lg border border-border bg-panel2/64 p-3 transition hover:border-primary/50 hover:bg-panel2"
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">

@@ -8,13 +8,15 @@ import type { AlertSummary } from "@voltaria/shared";
 export function AlertItem({
   alert,
   attended,
+  basePath = "",
   onAttend
 }: {
   alert: AlertSummary;
   attended: boolean;
+  basePath?: string;
   onAttend: (id: string) => void;
 }) {
-  const href = alert.chargerId ? `/chargers/${alert.chargerId}` : "/alerts";
+  const href = alert.chargerId ? `${basePath}/chargers/${alert.chargerId}` : `${basePath}/alerts`;
 
   return (
     <div

@@ -37,6 +37,7 @@ type ResidentDetailProps = {
   credentialEvents: CredentialEventSummary[];
   accessDevices: AccessDeviceSummary[];
   accessRule: ResidentAccessRuleSummary | null;
+  basePath?: string;
 };
 
 export function ResidentDetail({
@@ -45,7 +46,8 @@ export function ResidentDetail({
   credentials,
   credentialEvents,
   accessDevices,
-  accessRule
+  accessRule,
+  basePath = ""
 }: ResidentDetailProps) {
   const [manualTag, setManualTag] = useState("");
   const [manualLabel, setManualLabel] = useState("Tarjeta principal");
@@ -451,7 +453,7 @@ export function ResidentDetail({
               {sessions.slice(0, 6).map((session) => (
                 <a
                   key={session.id}
-                  href={`/sessions/${session.id}`}
+                  href={`${basePath}/sessions/${session.id}`}
                   className="block rounded-lg border border-border bg-panel2/64 p-3 transition hover:border-cyan/50"
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">

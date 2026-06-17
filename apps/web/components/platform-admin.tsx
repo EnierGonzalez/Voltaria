@@ -15,7 +15,8 @@ import type { TenantProvisioningInput } from "@voltaria/shared";
 import {
   createTenantAction,
   revokeGatewayAction,
-  rotateGatewayTokenAction
+  rotateGatewayTokenAction,
+  updateTenantStatusAction
 } from "@/lib/actions/platform-actions";
 
 type TenantFormState = TenantProvisioningInput;
@@ -73,7 +74,24 @@ export function PlatformDashboard({ summary }: { summary: PlatformDashboardSumma
   );
 }
 
-export function PlatformTenants({ tenants }: { tenants: PlatformTenantSummary[] }) {
+export function PlatformTenants({
+  tenants,
+  canManage = false
+}: {
+  tenants: PlatformTenantSummary[];
+  canManage?: boolean;
+}) {
+  const [message, setMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function updateStatus(organizationId: string, status: "active" | "disabled") {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await updateTenantStatusAction(organizationId, status);
+      setMessage(result.ok ? "Tenant actualizado." : result.error ?? "No se pudo actualizar el tenant.");
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -90,6 +108,7 @@ export function PlatformTenants({ tenants }: { tenants: PlatformTenantSummary[] 
       </div>
 
       <SectionCard title="Clientes" description="Scope global visible solo para roles platform.">
+        {message ? <p className="mb-3 rounded-md border border-border bg-panel2/60 p-3 text-sm text-muted">{message}</p> : null}
         <div className="overflow-hidden rounded-lg border border-border">
           <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-panel2 text-xs uppercase text-muted">
@@ -99,6 +118,7 @@ export function PlatformTenants({ tenants }: { tenants: PlatformTenantSummary[] 
                 <th className="hidden px-3 py-3 lg:table-cell">Propiedades</th>
                 <th className="hidden px-3 py-3 lg:table-cell">Gateways</th>
                 <th className="px-3 py-3">Estado</th>
+                <th className="px-3 py-3">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -117,6 +137,40 @@ export function PlatformTenants({ tenants }: { tenants: PlatformTenantSummary[] 
                     <StatusBadge variant={tenant.status === "disabled" ? "critical" : "success"}>
                       {tenant.status}
                     </StatusBadge>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex min-w-0 flex-wrap gap-2">
+                      <Link
+                        href={`/platform/tenants/${tenant.id}`}
+                        className="rounded-md border border-border px-2 py-1 text-xs text-muted transition hover:border-cyan/60 hover:text-foreground"
+                      >
+                        Ver detalle
+                      </Link>
+                      {tenant.primaryPropertySlug ? (
+                        <Link
+                          href={`/app/${tenant.primaryPropertySlug}/dashboard`}
+                          className="rounded-md border border-cyan/30 bg-cyan/10 px-2 py-1 text-xs font-semibold text-cyan transition hover:bg-cyan/15"
+                        >
+                          Abrir tenant
+                        </Link>
+                      ) : null}
+                      <Link
+                        href="/platform/gateways"
+                        className="rounded-md border border-border px-2 py-1 text-xs text-muted transition hover:border-cyan/60 hover:text-foreground"
+                      >
+                        Gateways
+                      </Link>
+                      {canManage ? (
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => updateStatus(tenant.id, tenant.status === "disabled" ? "active" : "disabled")}
+                          className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning transition hover:bg-warning/15 disabled:opacity-60"
+                        >
+                          {tenant.status === "disabled" ? "Activar" : "Desactivar"}
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -176,6 +230,12 @@ export function TenantProvisioningForm() {
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href={`/platform/tenants/${result.organizationId}`} className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white">
               Ver tenant
+            </Link>
+            <Link
+              href={`/app/${result.propertySlug}/dashboard`}
+              className="rounded-md border border-cyan/30 bg-cyan/10 px-4 py-2 text-sm font-semibold text-cyan transition hover:bg-cyan/15"
+            >
+              Abrir panel del tenant
             </Link>
             <button
               type="button"
@@ -262,6 +322,12 @@ export function PlatformTenantDetailView({
               <p className="font-semibold text-foreground">{property.name}</p>
               <p className="mt-1 text-sm text-muted">{property.address || "Sin dirección registrada"}</p>
               <p className="mt-3 text-xs text-muted">{property.outletsCount} tomas · {property.timezone} · {property.billingCurrency}</p>
+              <Link
+                href={`/app/${property.slug}/dashboard`}
+                className="mt-4 inline-flex min-h-9 items-center rounded-md border border-cyan/30 bg-cyan/10 px-3 text-sm font-semibold text-cyan transition hover:bg-cyan/15"
+              >
+                Abrir panel del tenant
+              </Link>
             </div>
           ))}
         </div>
@@ -287,6 +353,23 @@ export function PlatformGateways({
       </div>
       <GatewayList gateways={gateways} canManage={canManage} />
     </div>
+  );
+}
+
+export function PlatformPlaceholder({
+  title,
+  description
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <SectionCard title={title} description={description}>
+      <div className="rounded-lg border border-border bg-panel2/60 p-4 text-sm leading-6 text-muted">
+        Esta sección pertenece al scope global de Platform Admin. No usa contexto de propiedad ni muestra
+        navegación tenant.
+      </div>
+    </SectionCard>
   );
 }
 

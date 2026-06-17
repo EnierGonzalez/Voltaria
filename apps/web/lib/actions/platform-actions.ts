@@ -6,6 +6,7 @@ import {
   generateGatewayConfig,
   revokeGateway,
   rotateGatewayToken,
+  updatePlatformTenantStatus,
   type TenantProvisioningResult
 } from "@voltaria/db";
 import { recordIdSchema, tenantProvisioningSchema, type TenantProvisioningInput } from "@voltaria/shared";
@@ -83,6 +84,29 @@ export async function revokeGatewayAction(gatewayId: string) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : "No se pudo revocar el gateway."
+    };
+  }
+}
+
+export async function updateTenantStatusAction(
+  organizationId: string,
+  status: "active" | "trial" | "suspended" | "disabled"
+) {
+  await requireActionPermission("platform.tenants.manage");
+  const parsed = recordIdSchema.safeParse(organizationId);
+
+  if (!parsed.success) {
+    return { ok: false, error: "Tenant inválido." };
+  }
+
+  try {
+    await withDbContext(({ db }) => updatePlatformTenantStatus(db, parsed.data, status));
+    revalidatePlatformPaths();
+    return { ok: true, data: { organizationId: parsed.data, status } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "No se pudo actualizar el tenant."
     };
   }
 }

@@ -5,8 +5,8 @@ import { requirePagePermission, withDbContext } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export default async function PlatformTenantsPage() {
-  await requirePagePermission("platform.tenants.view", "/platform/tenants");
+  const user = await requirePagePermission("platform.tenants.view", "/platform/tenants");
   const tenants = await withDbContext(({ db }) => getPlatformTenants(db));
 
-  return <PlatformTenants tenants={tenants} />;
+  return <PlatformTenants tenants={tenants} canManage={user.permissions.includes("platform.tenants.manage")} />;
 }

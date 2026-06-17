@@ -131,12 +131,14 @@ Después del deploy:
 
 Luego validar con Basic Auth:
 
-- `/dashboard`
-- `/outlets`
+- `/platform`
+- `/select-property`
+- `/app/torre-aurora/dashboard`
+- `/app/torre-aurora/outlets`
 - `/mobile/outlets/aur-toma-01`
 - `/mobile/charge`
-- `/rfid-simulator`
-- `/billing`
-- `/audit`
+- `/app/torre-aurora/rfid-simulator`
+- `/app/torre-aurora/billing`
+- `/app/torre-aurora/audit`
 
 Este deploy es staging/demo protegido, no producción abierta.

@@ -27,7 +27,9 @@ export function ChargerDetail({
   sessions,
   logs,
   commands,
-  outletRule
+  outletRule,
+  propertyName = "Propiedad activa",
+  basePath = ""
 }: {
   charger: ChargerSummary;
   currentSession?: ChargingSessionSummary;
@@ -35,6 +37,8 @@ export function ChargerDetail({
   logs: OcppLogSummary[];
   commands: DeviceCommandSummary[];
   outletRule?: OutletAccessRuleSummary | null;
+  propertyName?: string;
+  basePath?: string;
 }) {
   const [stopRequested, setStopRequested] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -57,7 +61,7 @@ export function ChargerDetail({
         <StatCard
           title="Ubicación"
           value={charger.location}
-          delta="Torre Aurora"
+          delta={propertyName}
           tone="primary"
           icon={<Power className="h-5 w-5" aria-hidden="true" />}
         />
@@ -156,7 +160,7 @@ export function ChargerDetail({
         </SectionCard>
 
         <SectionCard title="Historial reciente" description="Sesiones asociadas a este punto">
-          <SessionTable sessions={sessions} />
+          <SessionTable sessions={sessions} basePath={basePath} />
         </SectionCard>
       </section>
 

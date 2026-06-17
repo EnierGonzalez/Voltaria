@@ -23,7 +23,11 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Web admin: `http://localhost:3000/dashboard`
+Selector de propiedad: `http://localhost:3000/select-property`
+
+Platform Admin: `http://localhost:3000/platform`
+
+Tenant Admin: `http://localhost:3000/app/torre-aurora/dashboard`
 
 PWA móvil: `http://localhost:3000/mobile/home`
 
@@ -72,14 +76,21 @@ pnpm build:web
 
 Rutas útiles:
 
-- Admin: `http://localhost:3000/dashboard`
-- Cargadores: `http://localhost:3000/chargers`
-- Tomas 120V: `http://localhost:3000/outlets`
-- Residentes: `http://localhost:3000/residents`
-- Sesiones: `http://localhost:3000/sessions`
+- Selector: `http://localhost:3000/select-property`
+- Platform Admin: `http://localhost:3000/platform`
+- Tenant dashboard: `http://localhost:3000/app/torre-aurora/dashboard`
+- Cargadores: `http://localhost:3000/app/torre-aurora/chargers`
+- Tomas 120V: `http://localhost:3000/app/torre-aurora/outlets`
+- Residentes: `http://localhost:3000/app/torre-aurora/residents`
+- Sesiones: `http://localhost:3000/app/torre-aurora/sessions`
 - PWA móvil: `http://localhost:3000/mobile/home`
 - PWA tomas: `http://localhost:3000/mobile/outlets`
 - OCPP server: `ws://localhost:9220/ocpp/{chargerId}`
+
+Las rutas legacy como `/dashboard`, `/outlets`, `/sessions`, `/residents`, `/billing`,
+`/audit`, `/reports` y `/settings` redirigen al tenant activo en `/app/[propertySlug]/...`,
+a `/select-property` si el usuario tiene varias propiedades, o a `/platform` si es un
+usuario platform sin propiedad asignada.
 
 ## Simulador de tomas 120V
 
@@ -99,11 +110,11 @@ pnpm outlet:simulator
 
 Rutas para probar:
 
-- `http://localhost:3000/outlets`
+- `http://localhost:3000/app/torre-aurora/outlets`
 - `http://localhost:3000/mobile/outlets`
 - `http://localhost:3000/mobile/outlets/aur-toma-01`
 - `http://localhost:3000/mobile/charge`
-- `http://localhost:3000/dashboard`
+- `http://localhost:3000/app/torre-aurora/dashboard`
 
 Prueba manual:
 
@@ -248,6 +259,10 @@ Pruebas sugeridas:
 
 Platform Admin permite operar Voltaria como SaaS multi-tenant.
 
+Platform Admin y Tenant Admin usan shells separados. Platform no muestra el header,
+footer ni navegación de `Torre Aurora`; opera en scope global SaaS. Tenant Admin vive
+en `/app/[propertySlug]` y siempre carga datos con `property_id` explícito.
+
 Rutas:
 
 - `/platform`: métricas globales de tenants, propiedades, tomas, gateways, sesiones y alertas.
@@ -255,6 +270,26 @@ Rutas:
 - `/platform/tenants/new`: provisioning de tenant, propiedad, tomas, tarifa, reglas, usuario inicial y gateway lógico.
 - `/platform/tenants/[organizationId]`: detalle operativo del tenant.
 - `/platform/gateways`: inventario global de gateways.
+- `/platform/users`, `/platform/support`, `/platform/system`, `/platform/settings`: placeholders globales para administración SaaS futura.
+
+En `/platform/tenants`, cada fila permite ver detalle, abrir el tenant admin,
+ver gateways y activar/desactivar el tenant si el usuario tiene `platform.tenants.manage`.
+No se implementa hard delete de tenants.
+
+Rutas tenant:
+
+- `/app/[propertySlug]/dashboard`
+- `/app/[propertySlug]/outlets`
+- `/app/[propertySlug]/chargers`
+- `/app/[propertySlug]/sessions`
+- `/app/[propertySlug]/residents`
+- `/app/[propertySlug]/billing`
+- `/app/[propertySlug]/audit`
+- `/app/[propertySlug]/reports`
+- `/app/[propertySlug]/settings`
+- `/app/[propertySlug]/settings/rules`
+- `/app/[propertySlug]/settings/users`
+- `/app/[propertySlug]/rfid-simulator`
 
 Permisos:
 
@@ -268,7 +303,8 @@ Flujo para nuevo tenant:
 2. Abre `/platform/tenants/new`.
 3. Captura cliente, propiedad, número de tomas, tarifa, owner inicial y gateway.
 4. Al crear, copia la contraseña temporal y el token del gateway; solo se muestran una vez.
-5. Entrega el JSON de config al worker/gateway correspondiente.
+5. Usa `Abrir panel del tenant` para entrar a `/app/[newPropertySlug]/dashboard`.
+6. Entrega el JSON de config al worker/gateway correspondiente.
 
 El seed crea la organización `Voltaria Demo`, asocia `Torre Aurora`, marca `admin@voltaria.local` como `platform_owner` y provisiona `GW-TORRE-AURORA-SIM`. No imprime tokens ni secretos.
 
@@ -345,7 +381,8 @@ Rutas nuevas:
 - `/login`: inicio de sesión interno.
 - `/change-password`: cambio obligatorio o manual de contraseña.
 - `/403`: acceso denegado.
-- `/settings/users`: administración de usuarios, roles, estado y contraseñas temporales.
+- `/select-property`: selector de propiedad cuando el usuario tiene varias membresías.
+- `/app/[propertySlug]/settings/users`: administración tenant de usuarios, roles, estado y contraseñas temporales.
 
 Estrategia staging:
 

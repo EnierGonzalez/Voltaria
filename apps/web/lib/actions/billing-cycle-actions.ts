@@ -33,17 +33,19 @@ type ActionResult = {
 export async function createBillingCycleDraftAction(input: {
   periodStart: string;
   periodEnd: string;
+  propertyId?: string;
 }): Promise<ActionResult> {
   const user = await requireActionPermission("billing.manage");
   return withDbAction(async (db) => {
-    const property = await getDefaultProperty(db);
+    const property = input.propertyId ? null : await getDefaultProperty(db);
+    const propertyId = input.propertyId ?? property?.id;
 
-    if (!property) {
+    if (!propertyId) {
       return { ok: false, error: "No hay propiedad activa." };
     }
 
     const parsed = billingCycleCreateSchema.safeParse({
-      propertyId: property.id,
+      propertyId,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
       createdBy: user.email
@@ -55,7 +57,7 @@ export async function createBillingCycleDraftAction(input: {
 
     const detail = await createBillingCycleDraft(
       db,
-      property.id,
+      propertyId,
       parsed.data.periodStart,
       parsed.data.periodEnd,
       user.email

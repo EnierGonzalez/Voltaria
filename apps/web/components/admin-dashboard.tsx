@@ -54,7 +54,13 @@ const defaultData: AdminDashboardData = {
   monthlyConsumptionSeries
 };
 
-export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardData }) {
+export function AdminDashboard({
+  data = defaultData,
+  basePath = ""
+}: {
+  data?: AdminDashboardData;
+  basePath?: string;
+}) {
   const [attendedAlerts, setAttendedAlerts] = useState<Set<string>>(new Set());
   const openAlerts = useMemo(
     () => data.alerts.filter((alert) => !attendedAlerts.has(alert.id)).length,
@@ -68,7 +74,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
           title="Energía mensual"
           value={formatKwh(data.dashboardStats.monthlyKwh)}
           delta="+12.8% vs mes anterior"
-          href="/consumption"
+          href={tenantHref(basePath, "/consumption")}
           tone="cyan"
           icon={<Bolt className="h-5 w-5" aria-hidden="true" />}
         />
@@ -76,7 +82,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
           title="Sesiones activas"
           value={data.dashboardStats.activeSessions.toString()}
           delta={`${data.dashboardStats.availableConnectors} tomas disponibles`}
-          href="/sessions?status=active"
+          href={tenantHref(basePath, "/sessions?status=active")}
           tone="success"
           icon={<Zap className="h-5 w-5" aria-hidden="true" />}
         />
@@ -84,7 +90,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
           title="Ingresos estimados"
           value={formatCurrency(data.dashboardStats.monthlyRevenue)}
           delta={`${data.dashboardStats.billingReady} registros listos`}
-          href="/billing"
+          href={tenantHref(basePath, "/billing")}
           tone="primary"
           icon={<CreditCard className="h-5 w-5" aria-hidden="true" />}
         />
@@ -92,7 +98,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
           title="Alertas abiertas"
           value={openAlerts.toString()}
           delta={openAlerts === 1 ? "1 requiere atención" : `${openAlerts} requieren atención`}
-          href="/alerts"
+          href={tenantHref(basePath, "/alerts")}
           tone="warning"
           icon={<TriangleAlert className="h-5 w-5" aria-hidden="true" />}
         />
@@ -110,7 +116,7 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
         <SectionCard title="Estado de tomas" description="Puntos 120V por disponibilidad">
           <div className="max-h-[580px] space-y-3 overflow-y-auto pr-1">
             {data.chargers.slice(0, 5).map((charger) => (
-              <ChargerStatusCard key={charger.id} charger={charger} compact />
+              <ChargerStatusCard key={charger.id} charger={charger} compact basePath={basePath} />
             ))}
           </div>
         </SectionCard>
@@ -118,17 +124,18 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
 
       <section className="grid min-w-0 auto-rows-min items-start gap-6 xl:grid-cols-2">
         <SectionCard title="Sesiones recientes" description="Datos de sesión auditables">
-          <DashboardRecentSessions sessions={data.sessions} />
+          <DashboardRecentSessions sessions={data.sessions} basePath={basePath} />
         </SectionCard>
 
         <SectionCard title="Alertas" description={`${openAlerts} eventos abiertos en esta vista`}>
           <div className="space-y-3">
             {data.alerts.map((alert) => (
-              <AlertItem
-                key={alert.id}
-                alert={alert}
-                attended={attendedAlerts.has(alert.id)}
-                onAttend={(id) =>
+                <AlertItem
+                  key={alert.id}
+                  alert={alert}
+                  attended={attendedAlerts.has(alert.id)}
+                  basePath={basePath}
+                  onAttend={(id) =>
                   setAttendedAlerts((current) => {
                     const next = new Set(current);
                     next.add(id);
@@ -232,4 +239,8 @@ export function AdminDashboard({ data = defaultData }: { data?: AdminDashboardDa
       </section>
     </section>
   );
+}
+
+function tenantHref(basePath: string, path: string) {
+  return basePath ? `${basePath}${path}` : path;
 }
