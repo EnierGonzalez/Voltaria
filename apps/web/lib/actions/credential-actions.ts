@@ -7,14 +7,15 @@ import {
   createManualRfidCredential,
   disableCredential,
   getCredentialEnrollmentById,
-  getDefaultProperty,
+  getResidentById,
   loadDatabaseEnv,
   markCredentialDamaged,
   markCredentialLost,
   markCredentialStolen,
   replaceCredentialStart,
   startCredentialEnrollment,
-  type CredentialServiceResult
+  type CredentialServiceResult,
+  type CurrentUser
 } from "@voltaria/db";
 import {
   credentialDisableReasonSchema,
@@ -31,7 +32,7 @@ export async function createManualRfidCredentialAction(input: {
   rawIdTag: string;
   label?: string;
 }): Promise<CredentialServiceResult> {
-  await requireActionPermission("credentials.manage");
+  const user = await requireActionPermission("credentials.manage");
   const residentId = recordIdSchema.safeParse(input.residentId);
   const rawIdTag = rfidTagSchema.safeParse(input.rawIdTag);
   const label = input.label ? credentialLabelSchema.safeParse(input.label) : null;
@@ -41,18 +42,18 @@ export async function createManualRfidCredentialAction(input: {
   }
 
   return withCredentialDbAction(async (db) => {
-    const property = await getDefaultProperty(db);
+    const propertyId = await resolveResidentPropertyId(db, residentId.data, user);
 
-    if (!property) {
-      return { ok: false, error: "No hay propiedad activa.", reason: "property_not_found" };
+    if (!propertyId) {
+      return { ok: false, error: "Residente no encontrado o sin acceso.", reason: "property_not_found" };
     }
 
     const result = await createManualRfidCredential(db, {
-      propertyId: property.id,
+      propertyId,
       residentId: residentId.data,
       rawIdTag: rawIdTag.data,
       ...(label?.success ? { label: label.data } : {}),
-      performedBy: "admin:demo"
+      performedBy: user.email
     });
 
     revalidateResidentPaths(residentId.data);
@@ -67,7 +68,7 @@ export async function startCredentialEnrollmentAction(input: {
   oldCredentialId?: string;
   reason?: string;
 }): Promise<CredentialServiceResult> {
-  await requireActionPermission("credentials.manage");
+  const user = await requireActionPermission("credentials.manage");
   const residentId = recordIdSchema.safeParse(input.residentId);
   const accessDeviceId = input.accessDeviceId ? recordIdSchema.safeParse(input.accessDeviceId) : null;
   const oldCredentialId = input.oldCredentialId ? recordIdSchema.safeParse(input.oldCredentialId) : null;
@@ -84,20 +85,20 @@ export async function startCredentialEnrollmentAction(input: {
   }
 
   return withCredentialDbAction(async (db) => {
-    const property = await getDefaultProperty(db);
+    const propertyId = await resolveResidentPropertyId(db, residentId.data, user);
 
-    if (!property) {
-      return { ok: false, error: "No hay propiedad activa.", reason: "property_not_found" };
+    if (!propertyId) {
+      return { ok: false, error: "Residente no encontrado o sin acceso.", reason: "property_not_found" };
     }
 
     const result = await startCredentialEnrollment(db, {
-      propertyId: property.id,
+      propertyId,
       residentId: residentId.data,
       mode: input.mode,
       ...(accessDeviceId?.success ? { accessDeviceId: accessDeviceId.data } : {}),
       ...(oldCredentialId?.success ? { oldCredentialId: oldCredentialId.data } : {}),
       ...(reason?.success ? { reason: reason.data } : {}),
-      createdBy: "admin:demo"
+      createdBy: user.email
     });
 
     revalidateResidentPaths(residentId.data);
@@ -214,6 +215,27 @@ async function updateCredentialStatusAction(
     revalidatePath("/residents");
     return result;
   });
+}
+
+async function resolveResidentPropertyId(
+  db: ReturnType<typeof createDbClient>["db"],
+  residentId: string,
+  user: CurrentUser
+) {
+  const resident = await getResidentById(db, residentId);
+
+  if (!resident) {
+    return null;
+  }
+
+  const hasTenantAccess = user.memberships.some(
+    (membership) => membership.status === "active" && membership.propertyId === resident.propertyId
+  );
+  const hasPlatformAccess =
+    user.permissions.includes("platform.impersonate_property") &&
+    user.permissions.includes("platform.tenants.view");
+
+  return hasTenantAccess || hasPlatformAccess ? resident.propertyId : null;
 }
 
 async function withCredentialDbAction<T>(load: (db: ReturnType<typeof createDbClient>["db"]) => Promise<T>) {

@@ -3,12 +3,12 @@ import {
   auditSessionsForPeriod,
   createDbClient,
   exportJobs,
-  getDefaultProperty,
   getSessionAuditSummaries,
   loadDatabaseEnv
 } from "@voltaria/db";
 import { reportsPeriodQuerySchema, toCsv } from "@voltaria/shared";
 import { getCurrentUser } from "@/lib/auth";
+import { resolveTenantExportScope } from "@/lib/export-scope";
 
 loadDatabaseEnv();
 
@@ -29,21 +29,21 @@ export async function GET(request: Request) {
   const { db, client } = createDbClient();
 
   try {
-    const property = await getDefaultProperty(db);
+    const scope = await resolveTenantExportScope(db, user, request.url);
 
-    if (!property) {
-      return NextResponse.json({ error: "No hay propiedad activa." }, { status: 404 });
+    if (!scope.ok) {
+      return NextResponse.json({ error: scope.error }, { status: scope.status });
     }
 
-    const range = parseRange(request.url, property.id);
+    const range = parseRange(request.url, scope.propertyId);
 
     if (!range.ok) {
       return NextResponse.json({ error: range.error }, { status: 400 });
     }
 
-    await auditSessionsForPeriod(db, property.id, range.startDate, range.endDate);
+    await auditSessionsForPeriod(db, scope.propertyId, range.startDate, range.endDate);
 
-    const audits = (await getSessionAuditSummaries(db, property.id, 1000)).filter((audit) => {
+    const audits = (await getSessionAuditSummaries(db, scope.propertyId, 1000)).filter((audit) => {
       const startedAt = new Date(audit.sessionStartedAt);
       return startedAt >= range.startDate && startedAt < range.endDate;
     });
@@ -69,7 +69,7 @@ export async function GET(request: Request) {
     ]);
 
     await db.insert(exportJobs).values({
-      propertyId: property.id,
+      propertyId: scope.propertyId,
       type: "audit_csv",
       status: "completed",
       fileName: "voltaria-auditoria.csv",

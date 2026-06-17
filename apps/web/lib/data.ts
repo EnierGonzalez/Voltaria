@@ -38,12 +38,14 @@ import {
   loadDatabaseEnv
 } from "@voltaria/db";
 import {
+  assertNoDefaultTenantFallbackInProduction,
   billingRecords,
   chargingPoints,
   consumptionSeries,
   dashboardStats,
   meterValueSeries,
   mobileAccessSummary,
+  mobileResident,
   mobileSessions,
   monthlyConsumptionSeries,
   ocppLogs,
@@ -78,7 +80,8 @@ import {
   type RuleEvaluationSummary,
   type SessionAuditSummary,
   type SessionEventSummary,
-  type TariffSummary
+  type TariffSummary,
+  isTenantFallbackBlockedError
 } from "@voltaria/shared";
 import type { AppUserSummary } from "@voltaria/db";
 import { getCurrentResidentContext, isDevelopmentAuthFallbackAllowed } from "@/lib/auth";
@@ -113,6 +116,10 @@ export type OutletsPageData = {
   sessions: ChargingSessionSummary[];
   residents: ResidentSummary[];
   tariffs: TariffSummary[];
+  currentResident?: {
+    id: string;
+    name: string;
+  };
 };
 
 export type ChargerDetailData = {
@@ -206,7 +213,11 @@ const mockOutletsData: OutletsPageData = {
   outlets: towerOutlets,
   sessions: recentSessions,
   residents,
-  tariffs
+  tariffs,
+  currentResident: {
+    id: mobileResident.id,
+    name: mobileResident.name
+  }
 };
 
 const mockAccessDevices: AccessDeviceSummary[] = [
@@ -267,54 +278,90 @@ export async function getModulePageData(propertyId?: string): Promise<ModulePage
 }
 
 export async function getOutletsPageData(propertyId?: string): Promise<OutletsPageData> {
-  return withDatabaseFallback(mockOutletsData, async ({ db }) => {
-    const resolvedPropertyId = await resolvePropertyId(db, propertyId);
+  const residentContext = await getCurrentResidentContext();
+  const fallback = isDevelopmentAuthFallbackAllowed()
+    ? mockOutletsData
+    : { outlets: [], sessions: [], residents: [], tariffs: [] };
+
+  return withDatabaseFallback(fallback, async ({ db }) => {
+    const resolvedPropertyId =
+      propertyId ??
+      residentContext?.propertyId ??
+      (await resolvePropertyId(db, undefined, "mobile outlets"));
 
     if (!resolvedPropertyId) {
-      return mockOutletsData;
+      return fallback;
     }
 
     const outlets = await getControlledOutlets(db, resolvedPropertyId);
+    const residentList = await getResidents(db, resolvedPropertyId);
+    const currentResident = residentContext?.residentId
+      ? residentList.find((resident) => resident.id === residentContext.residentId)
+      : null;
 
     return {
-      outlets: outlets.length > 0 ? outlets : towerOutlets,
+      outlets: outlets.length > 0 || !isDevelopmentAuthFallbackAllowed() ? outlets : towerOutlets,
       sessions: await getRecentSessions(db, resolvedPropertyId, 50),
-      residents: await getResidents(db, resolvedPropertyId),
-      tariffs: await getTariffs(db, resolvedPropertyId)
+      residents: residentList,
+      tariffs: await getTariffs(db, resolvedPropertyId),
+      ...(currentResident ? { currentResident: { id: currentResident.id, name: currentResident.name } } : {})
     };
   });
 }
 
 export async function getOutletByPublicCodeData(publicCode: string): Promise<OutletsPageData & { outlet: ControlledOutletSummary | null }> {
   const fallbackOutlet = towerOutlets.find((outlet) => outlet.publicAccessCode === publicCode) ?? null;
-
-  return withDatabaseFallback(
-    {
-      ...mockOutletsData,
-      outlet: fallbackOutlet
-    },
-    async ({ db }) => {
-      const property = await getDefaultProperty(db);
-
-      if (!property) {
-        return {
+  const residentContext = await getCurrentResidentContext();
+  const fallback =
+    isDevelopmentAuthFallbackAllowed()
+      ? {
           ...mockOutletsData,
           outlet: fallbackOutlet
+        }
+      : {
+          outlets: [],
+          sessions: [],
+          residents: [],
+          tariffs: [],
+          outlet: null
         };
-      }
 
-      const outlet = await getControlledOutletByPublicCode(db, publicCode);
-      const outlets = await getControlledOutlets(db, property.id);
+  return withDatabaseFallback(fallback, async ({ db }) => {
+    const outlet = await getControlledOutletByPublicCode(db, publicCode);
 
+    if (!outlet) {
+      return fallback;
+    }
+
+    if (residentContext && residentContext.propertyId !== outlet.propertyId) {
       return {
-        outlets: outlets.length > 0 ? outlets : towerOutlets,
-        sessions: await getRecentSessions(db, property.id, 50),
-        residents: await getResidents(db, property.id),
-        tariffs: await getTariffs(db, property.id),
-        outlet: outlet ?? fallbackOutlet
+        outlets: [],
+        sessions: [],
+        residents: [],
+        tariffs: [],
+        outlet: null
       };
     }
-  );
+
+    if (!residentContext) {
+      assertNoDefaultTenantFallbackInProduction({ flow: "mobile outlet by public code" });
+    }
+
+    const outlets = await getControlledOutlets(db, outlet.propertyId);
+    const residentList = await getResidents(db, outlet.propertyId);
+    const currentResident = residentContext?.residentId
+      ? residentList.find((resident) => resident.id === residentContext.residentId)
+      : null;
+
+    return {
+      outlets: outlets.length > 0 || !isDevelopmentAuthFallbackAllowed() ? outlets : towerOutlets,
+      sessions: await getRecentSessions(db, outlet.propertyId, 50),
+      residents: residentList,
+      tariffs: await getTariffs(db, outlet.propertyId),
+      outlet,
+      ...(currentResident ? { currentResident: { id: currentResident.id, name: currentResident.name } } : {})
+    };
+  });
 }
 
 export async function getChargerDetailPageData(chargerId: string): Promise<ChargerDetailData> {
@@ -624,11 +671,6 @@ export async function getUsersSettingsPageData(propertyId?: string): Promise<Use
 export async function getMobileAccessData(): Promise<MobileAccessSummary> {
   return withDatabaseFallback<MobileAccessSummary>(mobileAccessSummary, async ({ db }) => {
     const residentContext = await getCurrentResidentContext();
-    const property = await getDefaultProperty(db);
-
-    if (!property) {
-      return mobileAccessSummary;
-    }
 
     if (!residentContext && !isDevelopmentAuthFallbackAllowed()) {
       return {
@@ -637,7 +679,13 @@ export async function getMobileAccessData(): Promise<MobileAccessSummary> {
       };
     }
 
-    const propertyId = residentContext?.propertyId ?? property.id;
+    const propertyId =
+      residentContext?.propertyId ?? (await resolvePropertyId(db, undefined, "mobile access"));
+
+    if (!propertyId) {
+      return mobileAccessSummary;
+    }
+
     const credential = await getResidentRfidCredential(
       db,
       propertyId,
@@ -659,6 +707,10 @@ export async function getMobileAccessData(): Promise<MobileAccessSummary> {
 export async function getMobileChargeData(): Promise<MobileChargeData> {
   return withDatabaseFallback<MobileChargeData>({ session: mobileSessions[0] ?? null }, async ({ db }) => {
     const residentContext = await getCurrentResidentContext();
+    const fallbackPropertyId =
+      !residentContext && isDevelopmentAuthFallbackAllowed()
+        ? await resolvePropertyId(db, undefined, "mobile charge")
+        : null;
     const resident = residentContext?.residentId
       ? {
           id: residentContext.residentId,
@@ -666,7 +718,9 @@ export async function getMobileChargeData(): Promise<MobileChargeData> {
           fullName: residentContext.user.activeMembership?.residentName ?? residentContext.user.fullName
         }
       : isDevelopmentAuthFallbackAllowed()
-        ? await getCurrentDemoResident(db)
+        ? fallbackPropertyId
+          ? await getCurrentDemoResident(db, fallbackPropertyId)
+          : null
         : null;
 
     if (!resident) {
@@ -692,12 +746,20 @@ async function withDatabaseFallback<T>(
   const context = createDbClientIfConfigured();
 
   if (!context) {
+    if (!isDevelopmentAuthFallbackAllowed()) {
+      throw new Error("Database is required outside development demo mode.");
+    }
+
     return fallback;
   }
 
   try {
     return await load(context);
   } catch (error) {
+    if (!isDevelopmentAuthFallbackAllowed() || isTenantFallbackBlockedError(error)) {
+      throw error;
+    }
+
     console.warn("Database data unavailable; using mock fallback.");
     return fallback;
   } finally {
@@ -707,12 +769,14 @@ async function withDatabaseFallback<T>(
 
 async function resolvePropertyId(
   db: Parameters<typeof getDefaultProperty>[0],
-  propertyId?: string
+  propertyId?: string,
+  flow = "data loader"
 ) {
   if (propertyId) {
     return propertyId;
   }
 
+  assertNoDefaultTenantFallbackInProduction({ flow });
   const property = await getDefaultProperty(db);
   return property?.id ?? null;
 }

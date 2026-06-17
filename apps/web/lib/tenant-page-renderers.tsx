@@ -101,7 +101,7 @@ export async function renderTenantAudit(organizationSlug: string, propertySlug: 
   const context = await requireTenantMembership(organizationSlug, propertySlug, "audit.view");
   const data = await getAuditPageData(context.property.id);
 
-  return <AuditWorkspace audits={data.audits} basePath={context.basePath} />;
+  return <AuditWorkspace audits={data.audits} basePath={context.basePath} propertyId={context.property.id} />;
 }
 
 export async function renderTenantRulesSettings(organizationSlug: string, propertySlug: string) {

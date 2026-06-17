@@ -191,6 +191,7 @@ const billingCycleItemStatusLabels = {
 } as const;
 
 export async function getDefaultProperty(db: VoltariaDb) {
+  // Legacy development helper. Runtime SaaS paths must resolve property from tenant/user context.
   const [property] = await db
     .select()
     .from(properties)

@@ -94,6 +94,11 @@ varias propiedades, o a `/platform` si es un usuario platform sin propiedad asig
 Las rutas legacy `/app/[propertySlug]/...` siguen existiendo temporalmente y redirigen a
 la URL canónica cuando la propiedad se puede resolver sin ambigüedad.
 
+Fuera de development demo, Voltaria no usa fallback automático a `Torre Aurora`.
+Los flujos mobile requieren usuario residente con `property_id`; los CSV de reportes
+requieren `propertyId` o `organizationSlug` + `propertySlug`; y el runtime local demo
+solo usa residente demo cuando ya existe una toma/property explícita.
+
 ## Simulador de tomas 120V
 
 El simulador procesa `device_commands` pendientes, confirma comandos `enable`/`disable`, mueve sesiones `pending_start` a `active`, genera `meter_values` cada pocos segundos y cierra sesiones al detenerlas. No usa APIs de hardware ni proveedores específicos.
@@ -294,6 +299,11 @@ Rutas tenant:
 - `/app/[organizationSlug]/[propertySlug]/settings/rules`
 - `/app/[organizationSlug]/[propertySlug]/settings/users`
 - `/app/[organizationSlug]/[propertySlug]/rfid-simulator`
+
+Diagnostics de aislamiento:
+
+- `/platform/system` muestra `APP_ENV`, `ENABLE_DEMO_TOOLS`, si el fallback default está permitido, conteos de tomas 120V vs otros puntos, comandos, sesiones, usuarios y gateways por propiedad.
+- Los warnings globales incluyen properties sin organización, gateways con organization/property inconsistente, usuarios sin membership y referencias huérfanas si aparecen.
 
 Permisos:
 

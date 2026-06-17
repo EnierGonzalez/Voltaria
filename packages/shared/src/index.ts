@@ -5,5 +5,6 @@ export * from "./formatters";
 export * from "./mock-data";
 export * from "./outlet-simulator";
 export * from "./permissions";
+export * from "./tenant-safety";
 export * from "./types";
 export * from "./validation";

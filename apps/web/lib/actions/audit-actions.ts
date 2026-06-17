@@ -5,7 +5,6 @@ import {
   auditSession,
   createDbClient,
   excludeSessionFromBilling,
-  getDefaultProperty,
   includeSessionInBilling,
   loadDatabaseEnv,
   markSessionAuditReviewed
@@ -117,7 +116,6 @@ async function withDbAction(
 
   try {
     context = createDbClient();
-    await getDefaultProperty(context.db);
     return await load(context.db);
   } catch (error) {
     return {

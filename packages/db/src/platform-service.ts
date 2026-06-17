@@ -2,8 +2,10 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { VoltariaDb } from "./client";
 import {
   alerts,
+  appUsers,
   chargers,
   chargingSessions,
+  deviceCommands,
   gatewayDevices,
   organizations,
   properties,
@@ -96,11 +98,24 @@ export type TenantIsolationDiagnostic = {
   propertyId: string | null;
   propertyName: string;
   propertySlug: string | null;
+  totalChargingPointsCount: number;
   outletsCount: number;
+  otherChargingPointsCount: number;
   sessionsCount: number;
+  commandsCount: number;
   gatewaysCount: number;
   usersCount: number;
   warnings: string[];
+};
+
+export type TenantIsolationDiagnosticsResult = {
+  properties: TenantIsolationDiagnostic[];
+  globalWarnings: string[];
+  environment: {
+    appEnv: string;
+    demoToolsEnabled: boolean;
+    defaultTenantFallbackAllowed: boolean;
+  };
 };
 
 export async function getTenantPropertyContextByPropertySlug(
@@ -391,7 +406,7 @@ export async function getPlatformConfigHealthCounts(db: VoltariaDb) {
 
 export async function getTenantIsolationDiagnostics(
   db: VoltariaDb
-): Promise<TenantIsolationDiagnostic[]> {
+): Promise<TenantIsolationDiagnosticsResult> {
   const propertyRows = await db
     .select({
       organizationId: organizations.id,
@@ -400,8 +415,11 @@ export async function getTenantIsolationDiagnostics(
       propertyId: properties.id,
       propertyName: properties.name,
       propertySlug: properties.slug,
+      totalChargingPointsCount: sql<number>`count(distinct ${chargers.id})::int`,
       outletsCount: sql<number>`count(distinct ${chargers.id}) filter (where ${chargers.kind} = 'controlled_outlet')::int`,
+      otherChargingPointsCount: sql<number>`count(distinct ${chargers.id}) filter (where ${chargers.kind} <> 'controlled_outlet')::int`,
       sessionsCount: sql<number>`count(distinct ${chargingSessions.id})::int`,
+      commandsCount: sql<number>`count(distinct ${deviceCommands.id})::int`,
       gatewaysCount: sql<number>`count(distinct ${gatewayDevices.id})::int`,
       usersCount: sql<number>`count(distinct ${userPropertyMemberships.userId})::int`
     })
@@ -409,6 +427,7 @@ export async function getTenantIsolationDiagnostics(
     .leftJoin(organizations, eq(organizations.id, properties.organizationId))
     .leftJoin(chargers, eq(chargers.propertyId, properties.id))
     .leftJoin(chargingSessions, eq(chargingSessions.propertyId, properties.id))
+    .leftJoin(deviceCommands, eq(deviceCommands.propertyId, properties.id))
     .leftJoin(gatewayDevices, eq(gatewayDevices.propertyId, properties.id))
     .leftJoin(userPropertyMemberships, eq(userPropertyMemberships.propertyId, properties.id))
     .groupBy(properties.id, organizations.id)
@@ -443,6 +462,36 @@ export async function getTenantIsolationDiagnostics(
     .from(properties)
     .where(isNull(properties.organizationId));
 
+  const [chargersWithoutProperty] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(chargers)
+    .leftJoin(properties, eq(properties.id, chargers.propertyId))
+    .where(isNull(properties.id));
+
+  const [sessionsWithoutProperty] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(chargingSessions)
+    .leftJoin(properties, eq(properties.id, chargingSessions.propertyId))
+    .where(isNull(properties.id));
+
+  const [commandsWithoutProperty] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(deviceCommands)
+    .leftJoin(properties, eq(properties.id, deviceCommands.propertyId))
+    .where(isNull(properties.id));
+
+  const [usersWithoutMembership] = await db
+    .select({ count: sql<number>`count(distinct ${appUsers.id})::int` })
+    .from(appUsers)
+    .leftJoin(userPropertyMemberships, eq(userPropertyMemberships.userId, appUsers.id))
+    .where(isNull(userPropertyMemberships.id));
+
+  const [membershipsWithoutProperty] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(userPropertyMemberships)
+    .leftJoin(properties, eq(properties.id, userPropertyMemberships.propertyId))
+    .where(isNull(properties.id));
+
   const warningByProperty = new Map<string, string[]>();
 
   for (const gateway of orphanGateways) {
@@ -471,17 +520,42 @@ export async function getTenantIsolationDiagnostics(
     warningByProperty.set(property.id, warnings);
   }
 
-  return propertyRows.map((row) => ({
-    organizationId: row.organizationId,
-    organizationName: row.organizationName ?? "Sin organización",
-    organizationSlug: row.organizationSlug,
-    propertyId: row.propertyId,
-    propertyName: row.propertyName,
-    propertySlug: row.propertySlug,
-    outletsCount: row.outletsCount ?? 0,
-    sessionsCount: row.sessionsCount ?? 0,
-    gatewaysCount: row.gatewaysCount ?? 0,
-    usersCount: row.usersCount ?? 0,
-    warnings: row.propertyId ? warningByProperty.get(row.propertyId) ?? [] : []
-  }));
+  const globalWarnings = [
+    countWarning(chargersWithoutProperty?.count ?? 0, "charging points sin property válida"),
+    countWarning(sessionsWithoutProperty?.count ?? 0, "sesiones sin property válida"),
+    countWarning(commandsWithoutProperty?.count ?? 0, "device commands sin property válida"),
+    countWarning(usersWithoutMembership?.count ?? 0, "usuarios sin membership"),
+    countWarning(membershipsWithoutProperty?.count ?? 0, "memberships apuntando a property inexistente")
+  ].filter((warning): warning is string => Boolean(warning));
+  const appEnv = process.env.APP_ENV ?? "development";
+  const demoToolsEnabled = process.env.ENABLE_DEMO_TOOLS === "true";
+
+  return {
+    properties: propertyRows.map((row) => ({
+      organizationId: row.organizationId,
+      organizationName: row.organizationName ?? "Sin organización",
+      organizationSlug: row.organizationSlug,
+      propertyId: row.propertyId,
+      propertyName: row.propertyName,
+      propertySlug: row.propertySlug,
+      totalChargingPointsCount: row.totalChargingPointsCount ?? 0,
+      outletsCount: row.outletsCount ?? 0,
+      otherChargingPointsCount: row.otherChargingPointsCount ?? 0,
+      sessionsCount: row.sessionsCount ?? 0,
+      commandsCount: row.commandsCount ?? 0,
+      gatewaysCount: row.gatewaysCount ?? 0,
+      usersCount: row.usersCount ?? 0,
+      warnings: row.propertyId ? warningByProperty.get(row.propertyId) ?? [] : []
+    })),
+    globalWarnings,
+    environment: {
+      appEnv,
+      demoToolsEnabled,
+      defaultTenantFallbackAllowed: appEnv === "development" && demoToolsEnabled
+    }
+  };
+}
+
+function countWarning(count: number, label: string) {
+  return count > 0 ? `${count} ${label}` : null;
 }

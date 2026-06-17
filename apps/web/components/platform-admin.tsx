@@ -9,7 +9,7 @@ import type {
   PlatformGatewaySummary,
   PlatformTenantDetail,
   PlatformTenantSummary,
-  TenantIsolationDiagnostic,
+  TenantIsolationDiagnosticsResult,
   TenantProvisioningResult
 } from "@voltaria/db";
 import type { TenantProvisioningInput } from "@voltaria/shared";
@@ -360,18 +360,48 @@ export function PlatformTenantDetailView({
 export function PlatformSystemDiagnostics({
   diagnostics
 }: {
-  diagnostics: TenantIsolationDiagnostic[];
+  diagnostics: TenantIsolationDiagnosticsResult;
 }) {
-  const warningCount = diagnostics.reduce((total, item) => total + item.warnings.length, 0);
+  const warningCount =
+    diagnostics.globalWarnings.length +
+    diagnostics.properties.reduce((total, item) => total + item.warnings.length, 0);
 
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-4">
-        <StatCard title="Propiedades" value={diagnostics.length.toString()} delta="con scoping tenant" tone="primary" icon={<Building2 className="h-5 w-5" />} />
-        <StatCard title="Tomas" value={sumDiagnostics(diagnostics, "outletsCount").toString()} delta="controlled_outlet" tone="cyan" icon={<Zap className="h-5 w-5" />} />
-        <StatCard title="Gateways" value={sumDiagnostics(diagnostics, "gatewaysCount").toString()} delta="por propiedad" tone="success" icon={<RadioTower className="h-5 w-5" />} />
+        <StatCard title="Propiedades" value={diagnostics.properties.length.toString()} delta="con scoping tenant" tone="primary" icon={<Building2 className="h-5 w-5" />} />
+        <StatCard title="Tomas 120V" value={sumDiagnostics(diagnostics.properties, "outletsCount").toString()} delta={`${sumDiagnostics(diagnostics.properties, "otherChargingPointsCount")} otros puntos`} tone="cyan" icon={<Zap className="h-5 w-5" />} />
+        <StatCard title="Gateways" value={sumDiagnostics(diagnostics.properties, "gatewaysCount").toString()} delta="por propiedad" tone="success" icon={<RadioTower className="h-5 w-5" />} />
         <StatCard title="Warnings" value={warningCount.toString()} delta="aislamiento SaaS" tone={warningCount > 0 ? "warning" : "success"} icon={<ShieldCheck className="h-5 w-5" />} />
       </section>
+
+      <SectionCard
+        title="Fallback policy"
+        description="Estado actual de fallbacks demo y ambiente. No muestra secretos."
+      >
+        <div className="grid gap-3 md:grid-cols-3">
+          <DiagnosticPill label="APP_ENV" value={diagnostics.environment.appEnv} />
+          <DiagnosticPill label="Demo tools" value={diagnostics.environment.demoToolsEnabled ? "enabled" : "disabled"} />
+          <DiagnosticPill
+            label="Default fallback"
+            value={diagnostics.environment.defaultTenantFallbackAllowed ? "allowed" : "blocked"}
+            warning={diagnostics.environment.defaultTenantFallbackAllowed}
+          />
+        </div>
+        {diagnostics.globalWarnings.length > 0 ? (
+          <ul className="mt-4 grid gap-2 text-sm text-warning">
+            {diagnostics.globalWarnings.map((warning) => (
+              <li key={warning} className="rounded-md border border-warning/25 bg-warning/10 px-3 py-2">
+                {warning}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 rounded-md border border-success/25 bg-success/10 px-3 py-2 text-sm text-success">
+            Sin warnings globales de aislamiento.
+          </p>
+        )}
+      </SectionCard>
 
       <SectionCard
         title="Tenant isolation diagnostics"
@@ -384,14 +414,16 @@ export function PlatformSystemDiagnostics({
                 <th className="px-3 py-3">Tenant</th>
                 <th className="hidden px-3 py-3 md:table-cell">Propiedad</th>
                 <th className="px-3 py-3">Tomas</th>
+                <th className="hidden px-3 py-3 lg:table-cell">Otros</th>
                 <th className="hidden px-3 py-3 lg:table-cell">Sesiones</th>
+                <th className="hidden px-3 py-3 xl:table-cell">Comandos</th>
                 <th className="hidden px-3 py-3 lg:table-cell">Usuarios</th>
                 <th className="hidden px-3 py-3 lg:table-cell">Gateways</th>
                 <th className="px-3 py-3">Estado</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {diagnostics.map((item) => (
+              {diagnostics.properties.map((item) => (
                 <tr key={item.propertyId ?? `${item.organizationId}-${item.propertySlug}`} className="align-top">
                   <td className="min-w-0 px-3 py-3">
                     <span className="block truncate font-medium text-foreground">{item.organizationName}</span>
@@ -402,7 +434,9 @@ export function PlatformSystemDiagnostics({
                     <span className="block truncate text-xs text-muted">{item.propertySlug ?? "sin-slug"}</span>
                   </td>
                   <td className="px-3 py-3 text-foreground">{item.outletsCount}</td>
+                  <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.otherChargingPointsCount}</td>
                   <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.sessionsCount}</td>
+                  <td className="hidden px-3 py-3 text-foreground xl:table-cell">{item.commandsCount}</td>
                   <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.usersCount}</td>
                   <td className="hidden px-3 py-3 text-foreground lg:table-cell">{item.gatewaysCount}</td>
                   <td className="px-3 py-3">
@@ -465,10 +499,35 @@ export function PlatformPlaceholder({
 }
 
 function sumDiagnostics(
-  diagnostics: TenantIsolationDiagnostic[],
-  key: "outletsCount" | "sessionsCount" | "gatewaysCount" | "usersCount"
+  diagnostics: TenantIsolationDiagnosticsResult["properties"],
+  key:
+    | "outletsCount"
+    | "otherChargingPointsCount"
+    | "sessionsCount"
+    | "commandsCount"
+    | "gatewaysCount"
+    | "usersCount"
 ) {
   return diagnostics.reduce((total, item) => total + item[key], 0);
+}
+
+function DiagnosticPill({
+  label,
+  value,
+  warning = false
+}: {
+  label: string;
+  value: string;
+  warning?: boolean;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border bg-panel2/60 p-3">
+      <p className="text-xs uppercase text-muted">{label}</p>
+      <p className={warning ? "mt-1 truncate font-semibold text-warning" : "mt-1 truncate font-semibold text-foreground"}>
+        {value}
+      </p>
+    </div>
+  );
 }
 
 function PlatformShortcut({ title, description, href }: { title: string; description: string; href: string }) {

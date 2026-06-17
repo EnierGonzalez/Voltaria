@@ -7,11 +7,11 @@ import {
   createBillingCycleDraft,
   createDbClient,
   excludeSessionFromCycle,
-  getDefaultProperty,
   includeSessionInCycle,
   loadDatabaseEnv,
   recalculateBillingCycle,
-  updateBillingCycleItemAdjustment
+  updateBillingCycleItemAdjustment,
+  type CurrentUser
 } from "@voltaria/db";
 import {
   billingCycleCreateSchema,
@@ -37,11 +37,10 @@ export async function createBillingCycleDraftAction(input: {
 }): Promise<ActionResult> {
   const user = await requireActionPermission("billing.manage");
   return withDbAction(async (db) => {
-    const property = input.propertyId ? null : await getDefaultProperty(db);
-    const propertyId = input.propertyId ?? property?.id;
+    const propertyId = resolveActionPropertyId(user, input.propertyId);
 
     if (!propertyId) {
-      return { ok: false, error: "No hay propiedad activa." };
+      return { ok: false, error: "Selecciona una propiedad para crear el corte." };
     }
 
     const parsed = billingCycleCreateSchema.safeParse({
@@ -187,6 +186,23 @@ export async function includeSessionInCycleAction(input: {
     revalidateBillingPaths(cycle.data);
     return { ok: true, message: "Sesión incluida en el corte." };
   });
+}
+
+function resolveActionPropertyId(user: CurrentUser, propertyId?: string) {
+  if (propertyId) {
+    const hasTenantAccess = user.memberships.some(
+      (membership) => membership.status === "active" && membership.propertyId === propertyId
+    );
+    const hasPlatformAccess =
+      user.permissions.includes("platform.impersonate_property") &&
+      user.permissions.includes("platform.tenants.view");
+
+    return hasTenantAccess || hasPlatformAccess ? propertyId : null;
+  }
+
+  const activeMemberships = user.memberships.filter((membership) => membership.status === "active");
+
+  return activeMemberships.length === 1 ? activeMemberships[0]?.propertyId ?? null : null;
 }
 
 async function withDbAction(

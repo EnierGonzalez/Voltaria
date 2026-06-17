@@ -23,7 +23,7 @@ const quickTags = ["RFID-DEMO-1204", "RFID-DEMO-0802", "RFID-UNKNOWN"];
 
 export function RfidSimulator({ accessDevices, outlets }: RfidSimulatorProps) {
   const [readerCode, setReaderCode] = useState(accessDevices[0]?.code ?? "RFID-PANEL-P1");
-  const [outletPublicCode, setOutletPublicCode] = useState(outlets[0]?.publicAccessCode ?? "aur-toma-01");
+  const [outletPublicCode, setOutletPublicCode] = useState(outlets[0]?.publicAccessCode ?? "");
   const [idTag, setIdTag] = useState("RFID-DEMO-1204");
   const [response, setResponse] = useState<RfidResponse | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -83,6 +83,7 @@ export function RfidSimulator({ accessDevices, outlets }: RfidSimulatorProps) {
                 onChange={(event) => setOutletPublicCode(event.target.value)}
                 className="min-h-10 rounded-md border border-border bg-panel px-3 text-sm text-foreground outline-none transition focus:border-cyan"
               >
+                {outlets.length === 0 ? <option value="">Sin tomas disponibles</option> : null}
                 {outlets.map((outlet) => (
                   <option key={outlet.id} value={outlet.publicAccessCode}>
                     {outlet.code} · {outlet.location}
@@ -115,7 +116,7 @@ export function RfidSimulator({ accessDevices, outlets }: RfidSimulatorProps) {
 
             <button
               type="button"
-              disabled={isPending || idTag.trim().length < 4}
+              disabled={isPending || idTag.trim().length < 4 || outletPublicCode.length === 0}
               onClick={simulateTap}
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-cyan/40 bg-cyan/12 px-4 text-sm font-semibold text-cyan transition hover:bg-cyan/20 disabled:cursor-not-allowed disabled:opacity-50"
             >

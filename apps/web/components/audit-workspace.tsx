@@ -41,10 +41,12 @@ const billingFilters: Array<{ value: BillingFilter; label: string }> = [
 
 export function AuditWorkspace({
   audits,
-  basePath = ""
+  basePath = "",
+  propertyId
 }: {
   audits: SessionAuditSummary[];
   basePath?: string;
+  propertyId?: string;
 }) {
   const [auditFilter, setAuditFilter] = useState<AuditFilter>("all");
   const [billingFilter, setBillingFilter] = useState<BillingFilter>("all");
@@ -62,6 +64,7 @@ export function AuditWorkspace({
     [auditFilter, audits, billingFilter]
   );
   const selected = audits.find((audit) => audit.id === selectedId) ?? filtered[0] ?? null;
+  const propertyQuery = propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : "";
   const stats = useMemo(
     () => ({
       needsReview: audits.filter((audit) => audit.auditStatus === "needs_review").length,
@@ -86,7 +89,7 @@ export function AuditWorkspace({
         description="Conciliación de kWh, comandos, reglas y estatus de cobro."
         action={
           <Link
-            href="/api/reports/audit.csv"
+            href={`/api/reports/audit.csv${propertyQuery}`}
             className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-panel2 px-3 text-sm font-medium text-muted transition hover:border-primary/60 hover:text-foreground"
           >
             <FileDown className="h-4 w-4" aria-hidden="true" />

@@ -14,7 +14,6 @@ import {
   chargingSessions,
   deviceCommands,
   meterValues,
-  properties,
   residents,
   systemEvents,
   tariffs
@@ -65,14 +64,11 @@ export type OutletSimulatorRunOptions = {
   staleLockMs?: number;
 };
 
-export async function getCurrentDemoResident(db: DbExecutor): Promise<RuntimeResident | null> {
-  // TODO: replace this with the authenticated resident once auth is wired.
-  const property = await getRuntimeProperty(db);
-
-  if (!property) {
-    return null;
-  }
-
+export async function getCurrentDemoResident(
+  db: DbExecutor,
+  propertyId: string
+): Promise<RuntimeResident | null> {
+  // Development-only helper. Callers must pass an explicit propertyId.
   const [resident] = await db
     .select({
       id: residents.id,
@@ -85,7 +81,7 @@ export async function getCurrentDemoResident(db: DbExecutor): Promise<RuntimeRes
     })
     .from(residents)
     .leftJoin(apartments, eq(apartments.id, residents.apartmentId))
-    .where(and(eq(residents.propertyId, property.id), eq(residents.email, DEMO_RESIDENT_EMAIL)))
+    .where(and(eq(residents.propertyId, propertyId), eq(residents.email, DEMO_RESIDENT_EMAIL)))
     .limit(1);
 
   return resident ?? null;
@@ -119,22 +115,6 @@ export async function startMobileOutletSession(
   options: { residentId?: string } = {}
 ): Promise<RuntimeResult> {
   return db.transaction(async (tx) => {
-    const resident = options.residentId
-      ? await getRuntimeResidentById(tx, options.residentId)
-      : await getCurrentDemoResident(tx);
-
-    if (!resident) {
-      return { ok: false, error: "No se encontró el residente demo." };
-    }
-
-    if (!resident.isActive) {
-      return { ok: false, error: "El residente no tiene acceso activo." };
-    }
-
-    if (!resident.apartmentId) {
-      return { ok: false, error: "El residente no tiene departamento activo." };
-    }
-
     const [outlet] = await tx
       .select()
       .from(chargers)
@@ -148,6 +128,26 @@ export async function startMobileOutletSession(
 
     if (!outlet) {
       return { ok: false, error: "No se encontró la toma solicitada." };
+    }
+
+    const resident = options.residentId
+      ? await getRuntimeResidentById(tx, options.residentId)
+      : await getCurrentDemoResident(tx, outlet.propertyId);
+
+    if (!resident) {
+      return { ok: false, error: "No se encontró el residente de la sesión." };
+    }
+
+    if (resident.propertyId !== outlet.propertyId) {
+      return { ok: false, error: "El residente no pertenece a la propiedad de la toma." };
+    }
+
+    if (!resident.isActive) {
+      return { ok: false, error: "El residente no tiene acceso activo." };
+    }
+
+    if (!resident.apartmentId) {
+      return { ok: false, error: "El residente no tiene departamento activo." };
     }
 
     const voltage = outlet.voltage ?? 120;
@@ -1033,16 +1033,6 @@ async function createAlertOnce(
     description: input.description,
     source: input.source
   });
-}
-
-async function getRuntimeProperty(db: DbExecutor) {
-  const [property] = await db
-    .select()
-    .from(properties)
-    .where(eq(properties.slug, "torre-aurora"))
-    .limit(1);
-
-  return property ?? null;
 }
 
 async function getActiveSessionForOutlet(db: VoltariaDb, outletId: string) {

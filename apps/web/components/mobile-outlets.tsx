@@ -25,6 +25,10 @@ type OutletsData = {
   sessions: ChargingSessionSummary[];
   residents: ResidentSummary[];
   tariffs: TariffSummary[];
+  currentResident?: {
+    id: string;
+    name: string;
+  };
 };
 
 export function MobileOutletsScreen({ data }: { data: OutletsData }) {
@@ -79,7 +83,7 @@ export function MobileOutletDetailScreen({
   data: OutletsData;
   outlet: ControlledOutletSummary;
 }) {
-  const resident = data.residents.find((item) => item.id === mobileResident.id) ?? mobileResident;
+  const resident = data.currentResident ?? mobileResident;
   const tariff = data.tariffs[0];
   const activeSessions = data.sessions.filter(
     (session) => session.status === "active" || session.status === "pending_start"

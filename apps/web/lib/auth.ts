@@ -13,7 +13,11 @@ import {
   type CurrentUserMembership,
   type TenantPropertyContext
 } from "@voltaria/db";
-import { getPermissionsForRole, type AppPermission } from "@voltaria/shared";
+import {
+  getPermissionsForRole,
+  isDevelopmentDemoTenantFallbackAllowed,
+  type AppPermission
+} from "@voltaria/shared";
 
 loadDatabaseEnv();
 
@@ -276,7 +280,7 @@ export async function withDbContext<T>(
 }
 
 export function isDevelopmentAuthFallbackAllowed() {
-  return (process.env.APP_ENV ?? "development") === "development";
+  return isDevelopmentDemoTenantFallbackAllowed();
 }
 
 function membershipBasePath(membership: CurrentUserMembership) {

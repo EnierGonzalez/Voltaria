@@ -3,12 +3,12 @@ import {
   auditSessionsForPeriod,
   createDbClient,
   exportJobs,
-  getDefaultProperty,
   getRecentSessions,
   loadDatabaseEnv
 } from "@voltaria/db";
 import { reportsPeriodQuerySchema, toCsv } from "@voltaria/shared";
 import { getCurrentUser } from "@/lib/auth";
+import { resolveTenantExportScope } from "@/lib/export-scope";
 
 loadDatabaseEnv();
 
@@ -29,21 +29,21 @@ export async function GET(request: Request) {
   const { db, client } = createDbClient();
 
   try {
-    const property = await getDefaultProperty(db);
+    const scope = await resolveTenantExportScope(db, user, request.url);
 
-    if (!property) {
-      return NextResponse.json({ error: "No hay propiedad activa." }, { status: 404 });
+    if (!scope.ok) {
+      return NextResponse.json({ error: scope.error }, { status: scope.status });
     }
 
-    const range = parseRange(request.url, property.id);
+    const range = parseRange(request.url, scope.propertyId);
 
     if (!range.ok) {
       return NextResponse.json({ error: range.error }, { status: 400 });
     }
 
-    await auditSessionsForPeriod(db, property.id, range.startDate, range.endDate);
+    await auditSessionsForPeriod(db, scope.propertyId, range.startDate, range.endDate);
 
-    const sessions = (await getRecentSessions(db, property.id, 1000)).filter((session) => {
+    const sessions = (await getRecentSessions(db, scope.propertyId, 1000)).filter((session) => {
       const startedAt = new Date(session.startedAt);
       return startedAt >= range.startDate && startedAt < range.endDate;
     });
@@ -77,7 +77,7 @@ export async function GET(request: Request) {
     ]);
 
     await db.insert(exportJobs).values({
-      propertyId: property.id,
+      propertyId: scope.propertyId,
       type: "sessions_csv",
       status: "completed",
       fileName: "voltaria-sesiones.csv",

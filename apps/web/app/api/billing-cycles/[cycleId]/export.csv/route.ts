@@ -7,6 +7,7 @@ import {
 } from "@voltaria/db";
 import { recordIdSchema, toCsv } from "@voltaria/shared";
 import { getCurrentUser } from "@/lib/auth";
+import { canAccessProperty } from "@/lib/export-scope";
 
 loadDatabaseEnv();
 
@@ -41,6 +42,10 @@ export async function GET(
 
     if (!detail) {
       return NextResponse.json({ error: "Corte no encontrado." }, { status: 404 });
+    }
+
+    if (!canAccessProperty(user, detail.cycle.propertyId)) {
+      return NextResponse.json({ error: "No tienes acceso a esta propiedad." }, { status: 403 });
     }
 
     const rows = detail.items.map((item) => ({

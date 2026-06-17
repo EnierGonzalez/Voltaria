@@ -50,6 +50,7 @@ export function BillingWorkspace({
     };
   }, [audits, periodEnd, periodStart, sessions]);
   const currentCycle = cycles[0] ?? null;
+  const propertyQuery = propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : "";
 
   return (
     <div className="space-y-6">
@@ -104,7 +105,7 @@ export function BillingWorkspace({
         action={
           <div className="flex gap-2">
             <Link
-              href="/api/reports/sessions.csv"
+              href={`/api/reports/sessions.csv${propertyQuery}`}
               className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-panel2 px-3 text-sm text-muted transition hover:border-primary/60 hover:text-foreground"
             >
               <FileDown className="h-4 w-4" aria-hidden="true" />
