@@ -13,6 +13,7 @@ import {
   chargers,
   chargingSessions,
   deviceCommands,
+  gatewayDevices,
   meterValues,
   residents,
   systemEvents,
@@ -419,10 +420,10 @@ export async function runOutletSimulatorTick(
 ): Promise<OutletSimulatorTickResult> {
   const processedCommands = await pollPendingCommands(db, options);
   const meterValuesCount = await generateMeterValuesForActiveSessions(db, options);
-  const timedOutSessions = await detectPendingStartTimeouts(db);
-  const ruleStoppedSessions = await detectRuleLimitSessions(db);
-  const noLoadSessions = await detectNoLoadSessions(db);
-  const overCurrentSessions = await detectOverCurrentSessions(db);
+  const timedOutSessions = await detectPendingStartTimeouts(db, options);
+  const ruleStoppedSessions = await detectRuleLimitSessions(db, options);
+  const noLoadSessions = await detectNoLoadSessions(db, options);
+  const overCurrentSessions = await detectOverCurrentSessions(db, options);
 
   return {
     processedCommands,
@@ -444,17 +445,16 @@ export async function pollPendingCommands(
     eq(deviceCommands.status, "pending"),
     or(isNull(deviceCommands.availableAt), lt(deviceCommands.availableAt, now)),
     or(isNull(deviceCommands.lockedAt), lt(deviceCommands.lockedAt, staleLockCutoff)),
-    options.scope === "property" && options.propertyId
-      ? eq(deviceCommands.propertyId, options.propertyId)
-      : undefined,
-    options.scope === "gateway" && options.gatewayId
-      ? eq(deviceCommands.gatewayId, options.gatewayId)
-      : undefined
+    ...scopeCommandConditions(options)
   ].filter(Boolean);
 
   const commands = await db
-    .select()
+    .select({
+      id: deviceCommands.id,
+      commandType: deviceCommands.commandType
+    })
     .from(deviceCommands)
+    .leftJoin(gatewayDevices, eq(gatewayDevices.id, deviceCommands.gatewayId))
     .where(and(...conditions))
     .orderBy(asc(deviceCommands.createdAt))
     .limit(25);
@@ -629,10 +629,7 @@ export async function generateMeterValuesForActiveSessions(
   const conditions = [
     eq(chargers.kind, "controlled_outlet"),
     eq(chargingSessions.status, "active"),
-    options.scope === "property" && options.propertyId
-      ? eq(chargingSessions.propertyId, options.propertyId)
-      : undefined,
-    options.scope === "gateway" && options.gatewayId ? eq(chargers.gatewayId, options.gatewayId) : undefined
+    ...scopeSessionConditions(options)
   ].filter(Boolean);
   const activeSessions = await db
     .select({
@@ -651,6 +648,7 @@ export async function generateMeterValuesForActiveSessions(
     })
     .from(chargingSessions)
     .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
+    .leftJoin(gatewayDevices, eq(gatewayDevices.id, chargers.gatewayId))
     .leftJoin(tariffs, and(eq(tariffs.propertyId, chargingSessions.propertyId), eq(tariffs.isActive, true)))
     .where(and(...conditions));
 
@@ -715,7 +713,14 @@ export async function generateMeterValuesForActiveSessions(
   return inserted;
 }
 
-export async function detectPendingStartTimeouts(db: VoltariaDb) {
+export async function detectPendingStartTimeouts(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const conditions = [
+    eq(chargingSessions.status, "pending_start"),
+    ...scopeSessionConditions(options)
+  ].filter(Boolean);
   const sessions = await db
     .select({
       id: chargingSessions.id,
@@ -726,7 +731,8 @@ export async function detectPendingStartTimeouts(db: VoltariaDb) {
     })
     .from(chargingSessions)
     .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
-    .where(eq(chargingSessions.status, "pending_start"))
+    .leftJoin(gatewayDevices, eq(gatewayDevices.id, chargers.gatewayId))
+    .where(and(...conditions))
     .limit(50);
 
   let closed = 0;
@@ -759,8 +765,11 @@ export async function detectPendingStartTimeouts(db: VoltariaDb) {
   return closed;
 }
 
-export async function detectNoLoadSessions(db: VoltariaDb) {
-  const activeSessions = await getActiveControlledOutletSessions(db);
+export async function detectNoLoadSessions(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const activeSessions = await getActiveControlledOutletSessions(db, options);
   let closed = 0;
 
   for (const session of activeSessions) {
@@ -792,8 +801,11 @@ export async function detectNoLoadSessions(db: VoltariaDb) {
   return closed;
 }
 
-export async function detectRuleLimitSessions(db: VoltariaDb) {
-  const activeSessions = await getActiveControlledOutletSessions(db);
+export async function detectRuleLimitSessions(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const activeSessions = await getActiveControlledOutletSessions(db, options);
   let stopped = 0;
 
   for (const session of activeSessions) {
@@ -819,8 +831,11 @@ export async function detectRuleLimitSessions(db: VoltariaDb) {
   return stopped;
 }
 
-export async function detectOverCurrentSessions(db: VoltariaDb) {
-  const activeSessions = await getActiveControlledOutletSessions(db);
+export async function detectOverCurrentSessions(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const activeSessions = await getActiveControlledOutletSessions(db, options);
   let closed = 0;
 
   for (const session of activeSessions) {
@@ -1073,7 +1088,16 @@ async function getLatestSessionMeterValue(db: DbExecutor, sessionId: string) {
   return latest ?? null;
 }
 
-async function getActiveControlledOutletSessions(db: VoltariaDb) {
+async function getActiveControlledOutletSessions(
+  db: VoltariaDb,
+  options: OutletSimulatorRunOptions = {}
+) {
+  const conditions = [
+    eq(chargers.kind, "controlled_outlet"),
+    eq(chargingSessions.status, "active"),
+    ...scopeSessionConditions(options)
+  ].filter(Boolean);
+
   return db
     .select({
       id: chargingSessions.id,
@@ -1086,7 +1110,56 @@ async function getActiveControlledOutletSessions(db: VoltariaDb) {
     })
     .from(chargingSessions)
     .innerJoin(chargers, eq(chargers.id, chargingSessions.chargerId))
-    .where(and(eq(chargers.kind, "controlled_outlet"), eq(chargingSessions.status, "active")));
+    .leftJoin(gatewayDevices, eq(gatewayDevices.id, chargers.gatewayId))
+    .where(and(...conditions));
+}
+
+function scopeCommandConditions(options: OutletSimulatorRunOptions) {
+  if (options.scope === "property" && options.propertyId) {
+    return [eq(deviceCommands.propertyId, options.propertyId)];
+  }
+
+  if (options.scope === "gateway" && options.gatewayId) {
+    return [eq(deviceCommands.gatewayId, options.gatewayId)];
+  }
+
+  if (options.scope === "all_simulated" || !options.scope) {
+    return [
+      or(
+        isNull(deviceCommands.gatewayId),
+        and(
+          eq(gatewayDevices.kind, "simulator"),
+          inArray(gatewayDevices.status, ["provisioned", "online", "offline"])
+        )
+      )
+    ];
+  }
+
+  return [];
+}
+
+function scopeSessionConditions(options: OutletSimulatorRunOptions) {
+  if (options.scope === "property" && options.propertyId) {
+    return [eq(chargingSessions.propertyId, options.propertyId)];
+  }
+
+  if (options.scope === "gateway" && options.gatewayId) {
+    return [eq(chargers.gatewayId, options.gatewayId)];
+  }
+
+  if (options.scope === "all_simulated" || !options.scope) {
+    return [
+      or(
+        isNull(chargers.gatewayId),
+        and(
+          eq(gatewayDevices.kind, "simulator"),
+          inArray(gatewayDevices.status, ["provisioned", "online", "offline"])
+        )
+      )
+    ];
+  }
+
+  return [];
 }
 
 async function forceCloseSessionAndOutlet(

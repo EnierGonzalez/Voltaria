@@ -112,7 +112,7 @@ pnpm dev:web
 Terminal 2:
 
 ```bash
-pnpm outlet:simulator
+pnpm outlet:simulator:dev
 ```
 
 Rutas para probar:
@@ -128,7 +128,7 @@ Prueba manual:
 1. Abre `/mobile/outlets/aur-toma-01`.
 2. Presiona `Iniciar carga`.
 3. Verifica que se cree una sesión `pending_start`.
-4. Deja correr `pnpm outlet:simulator` para pasarla a `active`.
+4. Deja correr `pnpm outlet:simulator:dev` para pasarla a `active`.
 5. Abre `/mobile/charge` y revisa kWh, tiempo, potencia y costo.
 6. Presiona `Detener carga`.
 7. Confirma que el simulador cierre la sesión como `completed`.
@@ -144,7 +144,7 @@ pnpm dev:web
 Terminal 2:
 
 ```bash
-pnpm outlet:simulator
+pnpm outlet:simulator:dev
 ```
 
 Opcional:
@@ -219,7 +219,7 @@ Pruebas manuales:
 2. Límite por residente: inicia una sesión para el residente demo e intenta iniciar otra. Debe responder que ya existe una sesión activa.
 3. Método deshabilitado: en `/settings/rules`, desactiva `Móvil`, guarda e intenta iniciar desde PWA. RFID debe seguir permitido si continúa activo.
 4. Horario: cambia la ventana a un horario fuera del actual y valida que mobile/RFID respondan `outside_schedule`.
-5. No-load y sobrecorriente: deja correr `pnpm outlet:simulator`; el runtime usa los timeouts, umbral y acción configurados en la regla activa.
+5. No-load y sobrecorriente: deja correr `pnpm outlet:simulator:dev`; el runtime usa los timeouts, umbral y acción configurados en la regla activa.
 
 ## Billing and Audit
 
@@ -246,7 +246,7 @@ No hay storage, PDF, email, pagos, CFDI/SAT ni bancos en esta fase. Cada exporta
 Flujo manual:
 
 1. Genera una sesión con mobile o RFID.
-2. Corre `pnpm outlet:simulator` para crear `meter_values`.
+2. Corre `pnpm outlet:simulator:dev` para crear `meter_values`.
 3. Detén la sesión desde `/mobile/charge` o RFID.
 4. Abre `/audit` y revisa auditoría, medición, comandos y reglas.
 5. Abre `/billing`, selecciona periodo y crea un corte draft.
@@ -325,21 +325,31 @@ El seed crea la organización `Voltaria Demo`, asocia `Torre Aurora`, marca `adm
 
 ## Worker / gateway deploy
 
-La web corre en Vercel. El worker de tomas no corre en Vercel; para staging 24/7 usa Railway, Render o un servicio always-on.
+La arquitectura de staging queda separada:
+
+- Web admin/PWA: Vercel.
+- Base de datos: Neon PostgreSQL.
+- Worker persistente de tomas: Railway.
+
+Vercel no procesa comandos de toma. La web crea `device_commands` en Neon y el worker persistente los reclama, confirma y genera mediciones. Para staging 24/7 usa Railway; Render Background Worker es alternativa compatible.
 
 Comandos base:
 
 ```bash
 pnpm dev:web
-pnpm outlet:simulator
+pnpm outlet:simulator:dev
 ```
 
 Variables principales:
 
 ```bash
+APP_ENV=staging
+DATABASE_URL=<Neon direct URL>
 WORKER_SCOPE=all_simulated
+WORKER_INSTANCE_ID=railway-sim-01
 OUTLET_SIMULATOR_POLL_INTERVAL_MS=3000
 OUTLET_SIMULATOR_METER_INTERVAL_MS=10000
+OUTLET_SIMULATOR_HEARTBEAT_INTERVAL_MS=30000
 ```
 
 Para worker por gateway:
@@ -349,6 +359,19 @@ WORKER_SCOPE=gateway
 WORKER_GATEWAY_CODE=GW-TORRE-AURORA-SIM
 WORKER_GATEWAY_TOKEN=<token-generado-una-vez>
 ```
+
+Flujo de prueba staging:
+
+1. Login en Vercel.
+2. Abre `/app/voltaria-demo/torre-aurora/outlets`.
+3. Inicia sesión desde mobile o admin.
+4. Railway procesa el comando `enable`.
+5. La sesión pasa a `active` y comienzan los `meter_values`.
+6. Detén la sesión.
+7. Railway procesa `disable` y la sesión queda `completed`.
+
+Si una sesión queda `pending_start`, revisa Railway logs, `/platform/gateways`,
+`/platform/system`, `/api/config-health`, `device_commands` y `gateway_devices.last_seen_at`.
 
 Guía completa: `docs/deploy-worker.md`.
 

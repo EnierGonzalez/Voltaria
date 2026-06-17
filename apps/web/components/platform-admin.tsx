@@ -608,11 +608,29 @@ function GatewayList({
                 {gateway.status}
               </StatusBadge>
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <StatusBadge
+                variant={
+                  gateway.workerStatus === "active"
+                    ? "success"
+                    : gateway.workerStatus === "disabled"
+                      ? "critical"
+                      : "warning"
+                }
+                className="normal-case"
+              >
+                {gateway.workerStatusLabel}
+              </StatusBadge>
+              {gateway.lastSeenAgeSeconds !== null ? (
+                <span className="text-xs text-muted">hace {formatGatewayAge(gateway.lastSeenAgeSeconds)}</span>
+              ) : null}
+            </div>
             <dl className="mt-4 grid gap-2 text-sm text-muted">
               <div className="flex justify-between gap-3"><dt>Tenant</dt><dd className="truncate text-foreground">{gateway.organizationName}</dd></div>
               <div className="flex justify-between gap-3"><dt>Propiedad</dt><dd className="truncate text-foreground">{gateway.propertyName}</dd></div>
               <div className="flex justify-between gap-3"><dt>Tipo</dt><dd className="text-foreground">{gateway.kind}</dd></div>
               <div className="flex justify-between gap-3"><dt>Heartbeat</dt><dd className="text-foreground">{gateway.lastSeenAt ? new Date(gateway.lastSeenAt).toLocaleString("es-MX") : "Sin heartbeat"}</dd></div>
+              {gateway.version ? <div className="flex justify-between gap-3"><dt>Versión</dt><dd className="truncate text-foreground">{gateway.version}</dd></div> : null}
             </dl>
             {canManage ? (
               <div className="mt-4 flex flex-wrap gap-2">
@@ -639,6 +657,20 @@ function GatewayList({
       </div>
     </SectionCard>
   );
+}
+
+function formatGatewayAge(seconds: number) {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  return `${Math.floor(minutes / 60)}h`;
 }
 
 function Field({

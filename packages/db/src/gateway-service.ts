@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { VoltariaDb } from "./client";
 import { gatewayDevices } from "./schema";
 
@@ -188,6 +188,52 @@ export async function updateGatewayHeartbeat(
     .returning();
 
   return updated ?? gateway;
+}
+
+export async function updateSimulatorGatewayHeartbeats(
+  db: DbExecutor,
+  input: {
+    workerInstanceId: string;
+    propertyId?: string;
+    version?: string;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  const conditions = [
+    eq(gatewayDevices.kind, "simulator"),
+    inArray(gatewayDevices.status, ["provisioned", "online", "offline"]),
+    input.propertyId ? eq(gatewayDevices.propertyId, input.propertyId) : undefined
+  ].filter(Boolean);
+  const gateways = await db
+    .select()
+    .from(gatewayDevices)
+    .where(and(...conditions));
+  const now = new Date();
+  let updatedCount = 0;
+
+  for (const gateway of gateways) {
+    const [updated] = await db
+      .update(gatewayDevices)
+      .set({
+        status: "online",
+        lastSeenAt: now,
+        version: input.version ?? gateway.version,
+        metadata: {
+          ...gateway.metadata,
+          ...input.metadata,
+          workerInstanceId: input.workerInstanceId
+        },
+        updatedAt: now
+      })
+      .where(eq(gatewayDevices.id, gateway.id))
+      .returning({ id: gatewayDevices.id });
+
+    if (updated) {
+      updatedCount += 1;
+    }
+  }
+
+  return updatedCount;
 }
 
 export async function generateGatewayConfig(

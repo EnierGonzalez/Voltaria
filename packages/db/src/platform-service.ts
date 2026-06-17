@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { VoltariaDb } from "./client";
 import {
   alerts,
@@ -12,6 +12,10 @@ import {
   tariffs,
   userPropertyMemberships
 } from "./schema";
+
+const GATEWAY_RECENT_MS = 2 * 60_000;
+const STUCK_COMMAND_MS = 5 * 60_000;
+const STUCK_PENDING_SESSION_MS = 2 * 60_000;
 
 export type PlatformDashboardSummary = {
   totalTenants: number;
@@ -49,6 +53,9 @@ export type PlatformGatewaySummary = {
   name: string;
   kind: string;
   status: string;
+  workerStatus: "active" | "not_connected" | "disabled";
+  workerStatusLabel: string;
+  lastSeenAgeSeconds: number | null;
   lastSeenAt: string | null;
   version: string | null;
   createdAt: string;
@@ -365,6 +372,7 @@ export async function getPlatformTenantDetail(
 }
 
 export async function getPlatformGateways(db: VoltariaDb): Promise<PlatformGatewaySummary[]> {
+  const now = new Date();
   const rows = await db
     .select({
       id: gatewayDevices.id,
@@ -385,22 +393,65 @@ export async function getPlatformGateways(db: VoltariaDb): Promise<PlatformGatew
     .innerJoin(properties, eq(properties.id, gatewayDevices.propertyId))
     .orderBy(desc(gatewayDevices.createdAt));
 
-  return rows.map((row) => ({
-    ...row,
-    lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString()
-  }));
+  return rows.map((row) => {
+    const lastSeenAgeSeconds = row.lastSeenAt
+      ? Math.max(0, Math.floor((now.getTime() - row.lastSeenAt.getTime()) / 1000))
+      : null;
+    const workerStatus = getGatewayWorkerStatus(row.status, lastSeenAgeSeconds);
+
+    return {
+      ...row,
+      workerStatus,
+      workerStatusLabel: getGatewayWorkerStatusLabel(workerStatus),
+      lastSeenAgeSeconds,
+      lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString()
+    };
+  });
 }
 
 export async function getPlatformConfigHealthCounts(db: VoltariaDb) {
+  const recentCutoff = new Date(Date.now() - GATEWAY_RECENT_MS);
+  const stuckCommandCutoff = new Date(Date.now() - STUCK_COMMAND_MS);
+  const stuckPendingSessionCutoff = new Date(Date.now() - STUCK_PENDING_SESSION_MS);
   const [orgs] = await db.select({ count: sql<number>`count(*)::int` }).from(organizations);
   const [gateways] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(gatewayDevices);
+  const [onlineGateways] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(gatewayDevices)
+    .where(and(eq(gatewayDevices.status, "online"), gte(gatewayDevices.lastSeenAt, recentCutoff)));
+  const [offlineGateways] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(gatewayDevices)
+    .where(
+      and(
+        inArray(gatewayDevices.status, ["provisioned", "online", "offline"]),
+        or(isNull(gatewayDevices.lastSeenAt), lt(gatewayDevices.lastSeenAt, recentCutoff))
+      )
+    );
+  const [stuckCommands] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(deviceCommands)
+    .where(
+      and(
+        inArray(deviceCommands.status, ["pending", "sent"]),
+        or(lt(deviceCommands.createdAt, stuckCommandCutoff), lt(deviceCommands.lockedAt, stuckCommandCutoff))
+      )
+    );
+  const [stuckSessions] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(chargingSessions)
+    .where(and(eq(chargingSessions.status, "pending_start"), lt(chargingSessions.startedAt, stuckPendingSessionCutoff)));
 
   return {
     organizationsCount: orgs?.count ?? 0,
-    gatewaysCount: gateways?.count ?? 0
+    gatewaysCount: gateways?.count ?? 0,
+    gatewaysOnlineCount: onlineGateways?.count ?? 0,
+    gatewaysOfflineCount: offlineGateways?.count ?? 0,
+    stuckCommandsCount: stuckCommands?.count ?? 0,
+    stuckSessionsCount: stuckSessions?.count ?? 0
   };
 }
 
@@ -558,4 +609,28 @@ export async function getTenantIsolationDiagnostics(
 
 function countWarning(count: number, label: string) {
   return count > 0 ? `${count} ${label}` : null;
+}
+
+function getGatewayWorkerStatus(status: string, lastSeenAgeSeconds: number | null) {
+  if (status === "disabled" || status === "revoked") {
+    return "disabled";
+  }
+
+  if (status === "online" && lastSeenAgeSeconds !== null && lastSeenAgeSeconds <= GATEWAY_RECENT_MS / 1000) {
+    return "active";
+  }
+
+  return "not_connected";
+}
+
+function getGatewayWorkerStatusLabel(status: "active" | "not_connected" | "disabled") {
+  if (status === "active") {
+    return "Worker activo";
+  }
+
+  if (status === "disabled") {
+    return "Gateway deshabilitado";
+  }
+
+  return "Worker no conectado";
 }
