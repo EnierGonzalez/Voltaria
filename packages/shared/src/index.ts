@@ -1,6 +1,7 @@
 export * from "./auth";
 export * from "./constants";
 export * from "./csv";
+export * from "./date-utils";
 export * from "./formatters";
 export * from "./mock-data";
 export * from "./outlet-simulator";

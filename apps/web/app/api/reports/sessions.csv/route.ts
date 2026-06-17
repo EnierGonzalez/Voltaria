@@ -6,7 +6,7 @@ import {
   getRecentSessions,
   loadDatabaseEnv
 } from "@voltaria/db";
-import { reportsPeriodQuerySchema, toCsv } from "@voltaria/shared";
+import { normalizeDateRange, reportsPeriodQuerySchema, startOfMonthUtc, toCsv } from "@voltaria/shared";
 import { getCurrentUser } from "@/lib/auth";
 import { resolveTenantExportScope } from "@/lib/export-scope";
 
@@ -98,11 +98,8 @@ export async function GET(request: Request) {
 
 function parseRange(url: string, propertyId: string) {
   const searchParams = new URL(url).searchParams;
-  const defaultStart = new Date();
-  defaultStart.setDate(1);
-  defaultStart.setHours(0, 0, 0, 0);
-  const defaultEnd = new Date(defaultStart);
-  defaultEnd.setMonth(defaultEnd.getMonth() + 1);
+  const defaultStart = startOfMonthUtc(new Date());
+  const defaultEnd = new Date(Date.UTC(defaultStart.getUTCFullYear(), defaultStart.getUTCMonth() + 1, 1));
   const parsed = reportsPeriodQuerySchema.safeParse({
     propertyId,
     startDate: searchParams.get("startDate") ?? defaultStart,
@@ -113,9 +110,11 @@ function parseRange(url: string, propertyId: string) {
     return { ok: false as const, error: "Periodo inválido." };
   }
 
+  const { startDate, endDate } = normalizeDateRange(parsed.data);
+
   return {
     ok: true as const,
-    startDate: parsed.data.startDate,
-    endDate: parsed.data.endDate
+    startDate,
+    endDate
   };
 }

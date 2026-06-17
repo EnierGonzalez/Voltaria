@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type {
   AlertSummary,
   AuditBillingStatus,
@@ -33,6 +33,7 @@ import type {
   AccessScheduleWindowSummary,
   TariffSummary
 } from "@voltaria/shared";
+import { startOfDayUtc, startOfMonthUtc, toIsoString, toSqlTimestamp } from "@voltaria/shared";
 import type { VoltariaDb } from "./client";
 import {
   alerts,
@@ -225,10 +226,8 @@ export async function getDashboardSummary(
   const alertsList = await getAlerts(db, propertyId);
   const billing = await getBillingSummary(db, propertyId);
   const residentsList = await getResidents(db, propertyId);
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const monthStart = new Date(todayStart);
-  monthStart.setDate(1);
+  const todayStart = startOfDayUtc(new Date());
+  const monthStart = startOfMonthUtc(todayStart);
   const [rejectedRules] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(ruleEvaluations)
@@ -236,7 +235,7 @@ export async function getDashboardSummary(
       and(
         eq(ruleEvaluations.propertyId, propertyId),
         eq(ruleEvaluations.result, "denied"),
-        sql`${ruleEvaluations.createdAt} >= ${todayStart}`
+        gte(ruleEvaluations.createdAt, todayStart)
       )
     );
   const [rejectedRfid] = await db
@@ -247,7 +246,7 @@ export async function getDashboardSummary(
         eq(authorizationAttempts.propertyId, propertyId),
         eq(authorizationAttempts.method, "rfid"),
         sql`${authorizationAttempts.result} in ('rejected', 'blocked')`,
-        sql`${authorizationAttempts.createdAt} >= ${todayStart}`
+        gte(authorizationAttempts.createdAt, todayStart)
       )
     );
   const [maintenance] = await db
@@ -281,7 +280,7 @@ export async function getDashboardSummary(
     .where(
       and(
         eq(sessionAudits.propertyId, propertyId),
-        sql`${chargingSessions.startedAt} >= ${monthStart}`
+        gte(chargingSessions.startedAt, monthStart)
       )
     );
   const [openCycles] = await db
@@ -1617,11 +1616,11 @@ function toNumber(value: unknown) {
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return toIsoString(value) ?? "";
 }
 
 function toDate(value: Date | string) {
-  return value instanceof Date ? value : new Date(value);
+  return toSqlTimestamp(value);
 }
 
 function getInitials(name: string) {

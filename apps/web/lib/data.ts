@@ -56,6 +56,7 @@ import {
   tariffs,
   towerOutlets,
   weeklyConsumptionSeries,
+  startOfMonthUtc,
   type AlertSummary,
   type AccessDeviceSummary,
   type AuthorizationAttemptSummary,
@@ -792,11 +793,8 @@ async function safeSeries(
 }
 
 function currentMonthRange() {
-  const start = new Date();
-  start.setDate(1);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
+  const start = startOfMonthUtc(new Date());
+  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
 
   return { start, end };
 }
